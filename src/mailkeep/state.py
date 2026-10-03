@@ -194,6 +194,18 @@ class State:
             )
             self._event(conn, archive_id, None, "markdown", old, "complete")
 
+    def update_note_paths(self, moves: list[tuple[str, str, str]]) -> None:
+        with self.transaction() as conn:
+            for archive_id, old, new in moves:
+                changed = conn.execute(
+                    "UPDATE archives SET note_relpath=?,updated_at=? "
+                    "WHERE archive_id=? AND note_relpath=?",
+                    (new, utcnow(), archive_id, old),
+                )
+                if changed.rowcount != 1:
+                    raise RuntimeError(f"note path changed during organization: {archive_id}")
+                self._event(conn, archive_id, None, "note_path", old, new)
+
     def save_enrichment(self, archive_id: str, result: EnrichmentResult) -> None:
         payload = json.dumps({
             "categories": result.categories,

@@ -15,7 +15,7 @@ from . import __version__
 from .config import Config, load_config
 from .enrichment import list_jev_models
 from .provider import connect
-from .service import archive, dry_run_archive, prune, scan, verify
+from .service import archive, dry_run_archive, organize_notes, prune, scan, verify
 from .state import State
 
 
@@ -35,6 +35,10 @@ def parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--json", action="store_true")
     verify_parser = commands.add_parser("verify", help="verify preserved data")
     verify_parser.add_argument("--archive-id")
+    organize_parser = commands.add_parser("organize-notes", help="organize notes by message date")
+    organize_modes = organize_parser.add_mutually_exclusive_group(required=True)
+    organize_modes.add_argument("--dry-run", action="store_true")
+    organize_modes.add_argument("--execute", action="store_true")
     prune_parser = commands.add_parser("prune", help="evaluate or execute retention")
     modes = prune_parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--dry-run", action="store_true")
@@ -44,6 +48,13 @@ def parser() -> argparse.ArgumentParser:
 
 def _print_json(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, default=str))
+
+
+def _prune_has_blocked_due_item(result: list[dict[str, Any]]) -> bool:
+    return any(
+        item.get("gates", {}).get("retention_elapsed", False) and not item.get("eligible", False)
+        for item in result
+    )
 
 
 def doctor(config: Config) -> tuple[bool, list[dict[str, Any]]]:
@@ -143,6 +154,14 @@ def main(argv: list[str] | None = None) -> int:
         _print_json({"ok": report.ok, "checked": report.checked,
                      "errors": report.errors, "warnings": report.warnings})
         return 0 if report.ok else 1
+    if args.command == "organize-notes":
+        try:
+            result = organize_notes(config, execute=args.execute)
+            _print_json(result)
+            return 0
+        except Exception as exc:
+            print(f"organize-notes error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
 
     remote = None
     try:
@@ -164,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             result = prune(config, remote, execute=args.execute)
             _print_json(result)
-            return 0 if all(item.get("eligible", True) or not args.execute for item in result) else 1
+            return 1 if args.execute and _prune_has_blocked_due_item(result) else 0
     except Exception as exc:
         print(f"{args.command} error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

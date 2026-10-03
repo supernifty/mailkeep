@@ -6,7 +6,7 @@ from pathlib import Path
 
 from mailkeep.models import RemoteMessage
 from mailkeep.models import EnrichmentResult
-from mailkeep.service import archive, dry_run_archive, prune, verify
+from mailkeep.service import archive, dry_run_archive, organize_notes, prune, verify
 from mailkeep.state import State
 
 
@@ -69,8 +69,64 @@ def test_full_archive_reaches_verified_before_label_change(config_factory, plain
     assert row["preservation_state"] == "preservation_verified"
     assert row["enrichment_state"] == "skipped"
     assert row["markdown_state"] == "complete"
+    assert Path(row["note_relpath"]).parent == Path("2024/10")
+    assert (config.notes_dir / row["note_relpath"]).is_file()
     assert remote["provider_state"] == "processed"
     assert verify(config).ok
+
+
+def test_organize_notes_moves_legacy_note_without_changing_bytes(config_factory, plain_raw):
+    config = config_factory()
+    archive(config, FakeProvider([plain_raw]))
+    state = State(config.paths.database)
+    with state.connect() as conn:
+        row = conn.execute("SELECT archive_id,note_relpath FROM archives").fetchone()
+    organized = config.notes_dir / row["note_relpath"]
+    legacy_name = organized.name
+    legacy = config.notes_dir / legacy_name
+    original = organized.read_bytes()
+    organized.replace(legacy)
+    organized.parent.rmdir()
+    organized.parent.parent.rmdir()
+    with state.transaction() as conn:
+        conn.execute("UPDATE archives SET note_relpath=? WHERE archive_id=?",
+                     (legacy_name, row["archive_id"]))
+
+    plan = organize_notes(config, execute=False)
+    assert plan[0]["action"] == "planned"
+    assert legacy.read_bytes() == original
+
+    result = organize_notes(config, execute=True)
+
+    assert result[0]["action"] == "moved"
+    assert organized.read_bytes() == original
+    assert not legacy.exists()
+    with state.connect() as conn:
+        assert conn.execute("SELECT note_relpath FROM archives").fetchone()[0] == row["note_relpath"]
+    assert verify(config).ok
+
+
+def test_organize_notes_refuses_destination_collision(config_factory, plain_raw):
+    config = config_factory()
+    archive(config, FakeProvider([plain_raw]))
+    state = State(config.paths.database)
+    with state.connect() as conn:
+        row = conn.execute("SELECT archive_id,note_relpath FROM archives").fetchone()
+    organized = config.notes_dir / row["note_relpath"]
+    legacy = config.notes_dir / organized.name
+    legacy.write_bytes(organized.read_bytes())
+    with state.transaction() as conn:
+        conn.execute("UPDATE archives SET note_relpath=? WHERE archive_id=?",
+                     (legacy.name, row["archive_id"]))
+
+    try:
+        organize_notes(config, execute=True)
+    except RuntimeError as exc:
+        assert "destination already exists" in str(exc)
+    else:
+        raise AssertionError("note collision was accepted")
+    assert legacy.is_file()
+    assert organized.is_file()
 
 
 def test_enrichment_failure_never_moves_remote_label(config_factory, plain_raw, monkeypatch):

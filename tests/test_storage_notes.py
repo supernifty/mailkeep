@@ -5,7 +5,13 @@ from pathlib import Path
 
 from mailkeep.enrichment import no_enrichment
 from mailkeep.mime import parse_message
-from mailkeep.notes import PERSONAL_END, PERSONAL_START, build_note, note_filename, verify_managed
+from mailkeep.notes import (
+    PERSONAL_END,
+    PERSONAL_START,
+    build_note,
+    note_relative_path,
+    verify_managed,
+)
 from mailkeep.storage import identity, reconcile_staging, store
 
 
@@ -21,6 +27,24 @@ def test_exact_bytes_are_deduplicated(tmp_path: Path, plain_raw):
 def test_identity_changes_for_different_bytes_with_same_message_id(plain_raw):
     changed = plain_raw.replace(b"Hello Bob", b"Hello Alice")
     assert identity(plain_raw) != identity(changed)
+
+
+def test_note_relative_path_uses_message_year_and_month(plain_raw):
+    parsed = parse_message(plain_raw)
+
+    path = note_relative_path(parsed, "12345678-0000-0000-0000-000000000000")
+
+    assert path.parent == Path("2024/10")
+    assert path.name.startswith("2024-10-01 - ")
+
+
+def test_note_relative_path_uses_undated_folder():
+    parsed = parse_message(b"Subject: Bare\r\n\r\nbody")
+
+    path = note_relative_path(parsed, "12345678-0000-0000-0000-000000000000")
+
+    assert path.parent == Path("undated")
+    assert path.name.startswith("undated - ")
 
 
 def test_staging_reconciliation_only_removes_strict_names(tmp_path: Path):

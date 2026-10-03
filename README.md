@@ -43,6 +43,7 @@ uv run mailkeep --config config.yaml archive --dry-run
 uv run mailkeep --config config.yaml archive
 uv run mailkeep --config config.yaml verify
 uv run mailkeep --config config.yaml status --json
+uv run mailkeep --config config.yaml organize-notes --dry-run
 uv run mailkeep --config config.yaml prune --dry-run
 ```
 
@@ -54,6 +55,36 @@ Pruning requires exactly one of `--dry-run` or `--execute`. Execution also
 requires `deletion_enabled: true`, the elapsed retention interval, complete
 local verification, one unambiguous Gmail `X-GM-MSGID` match, and a newly
 fetched raw SHA-256 match.
+
+Obsidian notes are organized by message date under `Mailkeep/YYYY/MM/`, with
+messages lacking a reliable date under `Mailkeep/undated/`. Upgrade an existing
+flat note directory by reviewing `organize-notes --dry-run` and then running
+`organize-notes --execute`; note contents and personal regions are moved without
+being regenerated.
+
+For a periodic scheduler, run `scripts/mailkeep-periodic.sh`. It uses the
+checkout's `.venv/bin/mailkeep` and `config.yaml`, archives first, and runs
+`prune --execute` only if archiving succeeds. Override those paths with
+`MAILKEEP_BIN` or `MAILKEEP_CONFIG` when needed. Scheduler output should be
+captured so failures are visible; the script does not install a schedule.
+Messages still inside the retention interval are normal no-ops. A mature
+message blocked by another prune safety gate makes the wrapper fail.
+
+### Daily macOS schedule
+
+The anonymous LaunchAgent template runs the wrapper at 09:00 local time. Its
+installer renders checkout-specific paths only into the local user Library,
+then loads the generic `local.mailkeep.daily` label:
+
+```sh
+./scripts/install-launchd.sh
+```
+
+It does not run immediately when loaded. Inspect its registration with
+`launchctl print "gui/$(id -u)/local.mailkeep.daily"`. Use
+`launchctl kickstart -k "gui/$(id -u)/local.mailkeep.daily"` only when
+a live archive-and-prune run is intended. Secrets continue to come from the
+configured `env_file`; none are stored in the LaunchAgent.
 
 ## First live validation
 

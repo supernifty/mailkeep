@@ -13,7 +13,7 @@ from .enrichment import enrich, input_hash, no_enrichment, redact
 from .locking import data_lock
 from .mime import parse_message
 from .models import EnrichmentResult, RemoteMessage
-from .notes import build_note, note_filename, write_note
+from .notes import build_note, note_relative_path, write_note
 from .provider import Provider
 from .state import State
 from .storage import identity, object_relative_path, reconcile_staging, store
@@ -57,7 +57,7 @@ def dry_run_archive(config: Config, provider: Provider, limit: int | None,
         item: dict[str, Any] = {
             "remote": asdict(remote), "archive_id": archive_id, "raw_sha256": digest,
             "object_path": str(config.paths.archive_root / object_relative_path(digest, archive_id)),
-            "note_name": note_filename(parsed, archive_id),
+            "note_path": note_relative_path(parsed, archive_id).as_posix(),
             "actions": ["preserve", "enrich", "write_note", "verify", "mark_processed"],
         }
         if with_enrichment:
@@ -118,15 +118,15 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
                 try:
                     with state.attempt("markdown", config_hash, archive_id=stored.archive_id,
                                        remote_id=remote_id):
-                        filename = note_filename(parsed, stored.archive_id)
-                        note_path = config.notes_dir / filename
+                        relative_path = note_relative_path(parsed, stored.archive_id)
+                        note_path = config.notes_dir / relative_path
                         existing = note_path.read_text(encoding="utf-8") if note_path.exists() else None
                         content, managed_hash = build_note(
                             parsed, stored, config.account.account_id, config.paths.archive_root,
                             enrichment, existing=existing,
                         )
-                        write_note(config.notes_dir, filename, content)
-                        state.set_note(stored.archive_id, filename, managed_hash)
+                        write_note(config.notes_dir, relative_path, content)
+                        state.set_note(stored.archive_id, relative_path.as_posix(), managed_hash)
                         full = verify_archive(state, config.paths.archive_root, config.notes_dir, stored.archive_id)
                         if not full.ok:
                             raise RuntimeError("; ".join(full.errors))
@@ -202,3 +202,68 @@ def prune(config: Config, provider: Provider, execute: bool) -> list[dict[str, A
 def verify(config: Config, archive_id: str | None = None):
     state = State(config.paths.database)
     return verify_all(state, config.paths.archive_root, config.notes_dir, archive_id)
+
+
+def organize_notes(config: Config, execute: bool) -> list[dict[str, Any]]:
+    if not config.paths.database.exists():
+        return []
+    state = State(config.paths.database)
+    with state.connect() as conn:
+        rows = conn.execute(
+            "SELECT archive_id,message_date,note_relpath FROM archives "
+            "WHERE markdown_state='complete' ORDER BY archive_id"
+        ).fetchall()
+
+    plans: list[tuple[str, str, str, Path, Path]] = []
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        old = row["note_relpath"]
+        if not old:
+            raise RuntimeError(f"complete Markdown has no note path for {row['archive_id']}")
+        if row["message_date"]:
+            message_date = datetime.fromisoformat(row["message_date"])
+            directory = Path(f"{message_date.year:04d}") / f"{message_date.month:02d}"
+        else:
+            directory = Path("undated")
+        new = (directory / Path(old).name).as_posix()
+        item = {"archive_id": row["archive_id"], "from": old, "to": new,
+                "action": "already_organized" if old == new else "planned"}
+        output.append(item)
+        if old != new:
+            source = config.notes_dir / old
+            destination = config.notes_dir / new
+            plans.append((row["archive_id"], old, new, source, destination))
+
+    if not execute:
+        return output
+
+    with data_lock(config.paths.archive_root):
+        for archive_id, _, _, source, destination in plans:
+            report = verify_archive(
+                state, config.paths.archive_root, config.notes_dir, archive_id
+            )
+            if not report.ok:
+                raise RuntimeError("; ".join(report.errors))
+            if not source.is_file():
+                raise RuntimeError(f"note source does not exist: {source}")
+            if destination.exists():
+                raise RuntimeError(f"note destination already exists: {destination}")
+
+        moved: list[tuple[Path, Path]] = []
+        try:
+            for _, _, _, source, destination in plans:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                source.replace(destination)
+                moved.append((source, destination))
+            state.update_note_paths([(archive_id, old, new)
+                                     for archive_id, old, new, _, _ in plans])
+        except BaseException:
+            for source, destination in reversed(moved):
+                if destination.exists() and not source.exists():
+                    destination.replace(source)
+            raise
+
+    for item in output:
+        if item["action"] == "planned":
+            item["action"] = "moved"
+    return output

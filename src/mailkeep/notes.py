@@ -55,6 +55,12 @@ def note_filename(parsed: ParsedMessage, archive_id: str) -> str:
     return f"{date} - {sender} - {subject} - {archive_id[:8]}.md"
 
 
+def note_relative_path(parsed: ParsedMessage, archive_id: str) -> Path:
+    directory = (Path(f"{parsed.message_date.year:04d}") /
+                 f"{parsed.message_date.month:02d}") if parsed.message_date else Path("undated")
+    return directory / note_filename(parsed, archive_id)
+
+
 def build_note(
     parsed: ParsedMessage,
     stored: StoredObject,
@@ -117,10 +123,10 @@ def build_note(
     return text, digest
 
 
-def write_note(notes_dir: Path, filename: str, content: str) -> Path:
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    destination = notes_dir / filename
-    temporary = notes_dir / f".{filename}.tmp"
+def write_note(notes_dir: Path, relative_path: str | Path, content: str) -> Path:
+    destination = notes_dir / relative_path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp")
     temporary.write_text(content, encoding="utf-8")
     temporary.replace(destination)
     return destination

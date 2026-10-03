@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>local.mailkeep.daily</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>MAILKEEP_PERIODIC_SCRIPT</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>MAILKEEP_WORKING_DIRECTORY</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Umask</key>
+    <integer>63</integer>
+    <key>StandardOutPath</key>
+    <string>MAILKEEP_STANDARD_OUTPUT</string>
+    <key>StandardErrorPath</key>
+    <string>MAILKEEP_STANDARD_ERROR</string>
+</dict>
+</plist>

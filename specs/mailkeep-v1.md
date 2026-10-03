@@ -194,8 +194,13 @@ preservation intact and the remote message in the source label for retry.
 
 ## 10. Obsidian notes
 
-Notes are named `YYYY-MM-DD - Sender - Subject - <short-archive-id>.md`, with
-unsafe filename characters removed and bounded length. Front matter includes:
+Notes are stored below the configured Obsidian folder as
+`YYYY/MM/YYYY-MM-DD - Sender - Subject - <short-archive-id>.md`, using the
+message date. Messages without a reliable date use
+`undated/undated - Sender - Subject - <short-archive-id>.md`. Unsafe filename
+characters are removed and filename components are bounded. Date folders are
+stable organization only; categories, document types, and senders remain in
+front matter rather than determining note paths. Front matter includes:
 
 - schema version and archive ID;
 - message date plus date source, sender and recipient lists, subject,
@@ -229,14 +234,40 @@ and the stored managed-hash field itself.
 - `mailkeep verify [--archive-id ID]`: check relationships, safe paths, raw and
   attachment hashes, MIME-derived manifest, managed note hash, staging
   inconsistencies, and database orphans.
+- `mailkeep organize-notes --dry-run`: verify and report moves required to put
+  existing managed notes into the current date hierarchy without mutation.
+- `mailkeep organize-notes --execute`: under the data lock, preflight every
+  planned move, preserve note bytes and personal regions exactly, move notes,
+  and atomically update their database-relative paths. Unsafe paths, failed
+  archive verification, or destination collisions prevent execution. The
+  operation is rerunnable and already organized notes are no-ops.
 - `mailkeep prune --dry-run`: list eligible messages and every safety gate.
 - `mailkeep prune --execute`: additionally require `deletion_enabled: true`,
   reverify and refetch, then move unambiguous Gmail messages to Trash.
+- `scripts/mailkeep-periodic.sh`: run `archive` and, only after it exits
+  successfully, run `prune --execute`. The wrapper resolves its default
+  `config.yaml` and `.venv/bin/mailkeep` relative to the checkout so it does not
+  depend on the scheduler's working directory. `MAILKEEP_CONFIG` and
+  `MAILKEEP_BIN` may override those defaults. Missing or unusable inputs fail
+  before either command runs, and command output and exit status remain visible
+  to the scheduler.
+- `ops/launchd/local.mailkeep.daily.plist.in` and
+  `scripts/install-launchd.sh`: an anonymous macOS per-user LaunchAgent template
+  and installer. The installer renders checkout-specific absolute paths only
+  into the local `~/Library/LaunchAgents/local.mailkeep.daily.plist`, invokes
+  the periodic wrapper at 09:00 local time without `sudo`, and loads the generic
+  `local.mailkeep.daily` label. It does not embed credentials or run at load,
+  and appends standard output and error below `mailkeep-data/logs/`. Tracked
+  files must not contain a username, home-directory path, or other
+  machine-specific identity.
 
 Calling `prune` with neither mode or both modes is a usage error. Commands return
 zero on full success, 1 on operational or verification failure, and 2 for
 configuration or usage errors. Human output never contains secrets; JSON status
-is stable and machine-readable.
+is stable and machine-readable. A processed message whose retention interval
+has not elapsed is an expected no-op rather than a prune failure. During
+`prune --execute`, a retention-mature message blocked by another safety gate is
+an operational failure so periodic schedulers can surface it.
 
 ## 12. Acceptance criteria
 
@@ -253,11 +284,18 @@ Automated tests must cover:
   configuration-triggered re-enrichment for mocked Jev and Ollama;
 - deterministic note snapshots, encoded links, filename collisions, CID and
   remote-image handling, HTML/CSS/script suppression, and personal-note
-  preservation;
+  preservation; dated and undated note hierarchy; byte-preserving organization
+  of legacy flat notes; dry-run immutability; and collision refusal;
 - tampered or missing local data, unsafe paths, stale staging, and database
   orphan verification failures;
 - each retention/prune gate, disabled deletion, ambiguity, hash mismatch,
   absent outputs, dry-run immutability, exact Trash targeting, and no expunge.
+- periodic wrapper ordering, checkout-relative defaults, supported overrides,
+  refusal to prune after an archive failure, and successful no-op handling for
+  messages that are not yet retention-mature.
+- valid daily LaunchAgent template structure, correctly rendered absolute
+  executable and log paths, no embedded environment secrets, and no username
+  or machine-specific home path in tracked scheduling files.
 
 Tests and smoke artifacts use `tmp/codex/` inside the checkout and are removed
 after verification. Acceptance requires the automated suite and local CLI smoke
