@@ -1,0 +1,12 @@
+.env
+config.yaml
+mailkeep-data/
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.coverage
+dist/
+tmp/codex/

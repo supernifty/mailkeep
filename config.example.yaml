@@ -1,0 +1,39 @@
+schema_version: 1
+account:
+  account_id: personal-gmail
+  provider: gmail
+  host: imap.gmail.com
+  port: 993
+  username: person@example.com
+  password_env: MAILKEEP_GMAIL_PASSWORD
+  source_label: Mailkeep
+  processed_label: Mailkeep-Processed
+paths:
+  archive_root: ./mailkeep-data/archive
+  obsidian_vault: ~/Documents/Obsidian Vault
+  obsidian_folder: Mailkeep
+  database: ./mailkeep-data/mailkeep.sqlite3
+# env_file: ./.env
+retention_days: 90
+deletion_enabled: false
+limits:
+  messages_per_run: 100
+  bytes_per_run: 1073741824
+categories:
+  receipts: 0.70
+  travel: 0.75
+document_types:
+  - invoice
+  - receipt
+  - booking
+document_type_confidence: 0.70
+extraction_fields:
+  - amount
+  - due_date
+enrichment:
+  provider: jev
+  model: jev-latest
+  endpoint: https://api.typesafe.ai
+  api_key_env: MAILKEEP_JEV_API_KEY
+  privacy: redacted
+  timeout_seconds: 30

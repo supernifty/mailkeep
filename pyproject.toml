@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mailkeep"
+version = "0.1.0"
+description = "Local-first email preservation and Obsidian indexing"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "bleach>=6.2,<7",
+  "httpx>=0.27,<1",
+  "markdownify>=0.13,<2",
+  "pydantic>=2.9,<3",
+  "PyYAML>=6.0,<7",
+  "typesafe-sdk>=0.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<9", "pytest-cov>=6,<7"]
+
+[project.scripts]
+mailkeep = "mailkeep.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mailkeep"]
+
+[tool.pytest.ini_options]
+addopts = "-q --basetemp=tmp/codex/pytest"
+testpaths = ["tests"]
+cache_dir = "tmp/codex/pytest-cache"
+
+[tool.coverage.run]
+source = ["mailkeep"]
