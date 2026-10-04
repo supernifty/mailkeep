@@ -223,20 +223,18 @@ Notes are stored below the configured Obsidian folder as
 message date. Messages without a reliable date use
 `undated/undated - Sender - Subject - <short-archive-id>.md`. Unsafe filename
 characters are removed and filename components are bounded. Date folders are
-stable organization only; categories, document types, and senders remain in
-front matter rather than determining note paths. Front matter includes:
+stable organization only. As specified in `specs/obsidian-note-v2.md`, front
+matter is deliberately limited to message date, readable sender and recipient
+lists, subject, non-empty categories and document type, and configured
+evidence-backed extraction fields such as `amount` and `due_date`. Preservation
+identities, paths, hashes, extraction provenance, enrichment implementation
+details, and entity evidence remain in SQLite and archive manifests rather than
+Obsidian Properties.
 
-- schema version and archive ID;
-- message date plus date source, sender and recipient lists, subject,
-  `Message-ID`, and account;
-- selected categories, document type, and evidence-backed entities;
-- attachment original names, media types, sizes, hashes, archive-relative paths,
-  and percent-encoded absolute `file://` links;
-- raw `.eml` hash, relative path, and link;
-- enrichment provider/model and processing timestamps.
-
-The generated body includes a visible link for every original attachment and,
-when attempted, bounded extracted text or its explicit status. Embedded text is
+The generated body includes the message, evidence-backed extracted details, a
+visible link for every original attachment, a link to the original email, and,
+when attempted, bounded extracted text or its explicit status. Empty sections
+are omitted. Embedded text is
 limited to 50,000 characters per attachment and 100,000 per message by default;
 truncation links to the complete derived text. Extracted marker-like strings
 are escaped and personal text remains outside the managed region.
@@ -244,9 +242,9 @@ are escaped and personal text remains outside the managed region.
 Mailkeep owns the YAML front matter and the body between
 `<!-- mailkeep:generated:start -->` and `<!-- mailkeep:generated:end -->`.
 `<!-- mailkeep:personal:start -->` and `<!-- mailkeep:personal:end -->` always
-remain and their contents are preserved on regeneration. The managed hash
-covers canonical front matter and generated body only, excluding personal text
-and the stored managed-hash field itself.
+remain and their contents are preserved on regeneration. The managed hash is a
+hidden HTML comment, not an Obsidian property, and covers canonical front matter
+and generated body only, excluding personal text and the hash comment itself.
 
 ## 11. Commands
 
@@ -278,6 +276,9 @@ and the stored managed-hash field itself.
   extract or reuse preserved attachments and regenerate affected managed note
   regions while preserving personal content. This explicit maintenance command
   works even when automatic extraction is disabled.
+- `mailkeep regenerate-notes --dry-run|--execute [--archive-id ID]`: locally
+  plan or regenerate all managed reading notes from preserved data and cached
+  results, preserving personal content and making no provider or AI call.
 - `mailkeep prune --dry-run`: list eligible messages and every safety gate.
 - `mailkeep prune --execute`: additionally require `deletion_enabled: true`,
   reverify and refetch, then move unambiguous Gmail messages to Trash.

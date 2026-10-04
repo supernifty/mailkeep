@@ -64,7 +64,11 @@ exit into a recorded non-fatal outcome. No parser performs network requests or
 executes embedded PDF actions, scripts, programs, or external resources.
 
 `pypdf>=6.19,<7` is an ordinary locked runtime dependency. It is not vendored
-and requires no separately installed executable.
+and requires no separately installed executable. PDF text uses pypdf's
+fixed-width `layout` extraction mode so horizontal positioning, including
+table-like columns, remains readable when the PDF provides usable coordinates.
+This preserves visual alignment but does not claim semantic row, column,
+header, merged-cell, or table boundaries.
 
 ## Derived storage and SQLite
 
@@ -96,6 +100,8 @@ attachment, including unsupported images.
 If attachment extraction has a visible state, the note also contains
 `## Extracted attachment text`. Successful content is grouped by attachment;
 PDF page headings are preserved. Embedded Mailkeep marker strings are escaped.
+PDF page text is rendered in a whitespace-preserving Markdown code block;
+plain-text attachments remain ordinary text.
 At most 50,000 characters per attachment and 100,000 characters per message are
 included. When text is truncated, the note says so and links to the complete
 derived UTF-8 file. Non-success states are displayed without becoming note or

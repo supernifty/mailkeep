@@ -46,6 +46,28 @@ def _pdf(*texts: str, rotate: bool = False, encrypted: bool = False) -> bytes:
     return buffer.getvalue()
 
 
+def _table_pdf() -> bytes:
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+    font = DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"),
+    })
+    page[NameObject("/Resources")] = DictionaryObject({
+        NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)})
+    })
+    stream = DecodedStreamObject()
+    stream.set_data(
+        b"BT /F1 12 Tf 72 720 Td (Item) Tj 180 0 Td (Value) Tj "
+        b"-180 -20 Td (Alpha) Tj 180 0 Td (42) Tj ET"
+    )
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
 def _message(data: bytes, media_type: str, filename: str | None,
              *, message_id: str = "one@example.test", charset: str | None = None) -> bytes:
     message = EmailMessage()
@@ -84,12 +106,29 @@ def test_real_pypdf_multi_page_rotated_unicode_and_misleading_name(config_factor
                 attachment["stored_name"]).read_bytes()
     assert hashlib.sha256(original).hexdigest() == original_hash
     assert extraction["outcome"] == "success"
+    assert extraction["parser"] == "pypdf-layout"
     assert extraction["page_count"] == 2
     note = _only_note(config).read_text(encoding="utf-8")
     assert "## Attachments" in note
     assert "First page" in note and "caf\N{LATIN SMALL LETTER E WITH ACUTE}" in note
     assert "#### Page 1" in note and "#### Page 2" in note
     assert verify(config).ok
+
+
+def test_pdf_layout_columns_are_preserved_in_derived_text_and_note(config_factory):
+    config = config_factory()
+    raw = _message(_table_pdf(), "application/pdf", "table.pdf")
+
+    archive(config, FakeProvider([raw]))
+
+    with State(config.paths.database).connect() as conn:
+        result = conn.execute("SELECT * FROM attachment_extraction_results").fetchone()
+    text = (config.paths.archive_root / result["artifact_relpath"]).read_text(encoding="utf-8")
+    assert "Item" in text and "Value" in text
+    assert "Item  " in text
+    note = _only_note(config).read_text(encoding="utf-8")
+    assert "~~~~text" in note
+    assert "Item  " in note
 
 
 def conn_path(config) -> Path:

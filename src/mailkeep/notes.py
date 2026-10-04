@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,11 @@ GENERATED_START = "<!-- mailkeep:generated:start -->"
 GENERATED_END = "<!-- mailkeep:generated:end -->"
 PERSONAL_START = "<!-- mailkeep:personal:start -->"
 PERSONAL_END = "<!-- mailkeep:personal:end -->"
+MANAGED_HASH_RE = re.compile(r"<!-- mailkeep:managed-sha256: ([0-9a-f]{64}) -->")
+PROPERTY_FIELD_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+RESERVED_PROPERTIES = frozenset({
+    "date", "from", "to", "subject", "categories", "document_type",
+})
 
 
 def _safe_archive_path(root: Path, relative: str) -> Path:
@@ -45,6 +50,35 @@ def _managed_hash(front: dict[str, Any], generated: str) -> str:
     canonical = json.dumps(normalize(clean), ensure_ascii=False, sort_keys=True,
                            separators=(",", ":")) + "\n" + normalized_generated.strip() + "\n"
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _address(value: Any) -> str:
+    if value.name and value.email:
+        return f"{value.name} <{value.email}>"
+    return value.name or value.email
+
+
+def _human_size(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KiB"
+    return f"{size / (1024 * 1024):.1f} MiB"
+
+
+def _fixed_width_pages(text: str) -> str:
+    parts = re.split(r"(?m)^# Page (\d+)\n\n", text)
+    rendered: list[str] = []
+    if parts[0].strip():
+        parts = ["", "1", parts[0], *parts[1:]]
+    for index in range(1, len(parts), 2):
+        page = parts[index]
+        content = parts[index + 1].rstrip()
+        longest = max((len(match.group(0)) for match in re.finditer(r"~+", content)),
+                      default=0)
+        fence = "~" * max(4, longest + 1)
+        rendered.append(f"#### Page {page}\n\n{fence}text\n{content}\n{fence}")
+    return "\n\n".join(rendered)
 
 
 def _personal(existing: str | None) -> str:
@@ -80,60 +114,61 @@ def build_note(
     existing: str | None = None,
     processed_at: str | None = None,
     extractions: dict[str, AttachmentExtraction] | None = None,
+    property_fields: tuple[str, ...] = (),
     note_chars_per_attachment: int = 50_000,
     note_chars_per_message: int = 100_000,
 ) -> tuple[str, str]:
     object_rel = stored.object_dir.relative_to(archive_root)
-    eml_rel = object_rel / "original.eml"
-    attachments: list[dict[str, Any]] = []
+    attachment_urls: list[str] = []
     for item in parsed.attachments:
         relative = object_rel / "attachments" / item.stored_name
         absolute = archive_root / relative
-        extraction = (extractions or {}).get(item.ordinal)
-        attachments.append({
-            "name": item.original_name,
-            "media_type": item.media_type,
-            "size": len(item.data),
-            "sha256": item.sha256,
-            "path": relative.as_posix(),
-            "file_url": absolute.resolve().as_uri(),
-            "extraction_outcome": extraction.outcome if extraction else None,
-            "extracted_sha256": extraction.output_sha256 if extraction else None,
-            "extracted_path": extraction.artifact_relpath if extraction else None,
-        })
-    chosen = [name for name, score in enrichment.categories.items() if score >= 0]
-    front: dict[str, Any] = {
-        "mailkeep_schema": 1,
-        "archive_id": stored.archive_id,
-        "message_date": parsed.message_date.isoformat() if parsed.message_date else None,
-        "date_source": parsed.date_source,
-        "senders": [a.as_dict() for a in parsed.senders],
-        "recipients": [a.as_dict() for a in parsed.recipients],
-        "subject": parsed.subject,
-        "message_id": parsed.message_id,
-        "account": account_id,
-        "categories": chosen,
-        "document_type": enrichment.document_type,
-        "entities": list(enrichment.entities),
-        "attachments": attachments,
-        "eml_sha256": stored.raw_sha256,
-        "eml_path": eml_rel.as_posix(),
-        "eml_file_url": stored.eml_path.resolve().as_uri(),
-        "enrichment_provider": enrichment.provider,
-        "enrichment_model": enrichment.model,
-        "processed_at": processed_at or datetime.now(UTC).isoformat(),
+        attachment_urls.append(absolute.resolve().as_uri())
+    front: dict[str, Any] = {}
+    if parsed.message_date:
+        front["date"] = parsed.message_date.isoformat()
+    if parsed.senders:
+        front["from"] = [_address(value) for value in parsed.senders]
+    if parsed.recipients:
+        front["to"] = [_address(value) for value in parsed.recipients]
+    front["subject"] = parsed.subject
+    if enrichment.categories:
+        front["categories"] = list(enrichment.categories)
+    if enrichment.document_type:
+        front["document_type"] = enrichment.document_type
+    allowed_properties = {
+        field for field in property_fields
+        if PROPERTY_FIELD_RE.fullmatch(field) and field not in RESERVED_PROPERTIES
     }
-    sections = [parsed.body_markdown.strip()]
+    for entity in enrichment.entities:
+        field = str(entity.get("field", ""))
+        value = str(entity.get("value", "")).strip()
+        if field in allowed_properties and value and field not in front:
+            front[field] = value
+
+    sections = ["## Message\n\n" + (parsed.body_markdown.strip() or
+                                             "_No readable message body._")]
+    if enrichment.entities:
+        detail_lines = ["## Extracted details", ""]
+        for entity in enrichment.entities:
+            field = str(entity.get("field", "detail")).replace("_", " ").strip().title()
+            value = str(entity.get("value", "")).strip()
+            evidence = str(entity.get("evidence", "")).strip()
+            line = f"- **{field}:** {value}"
+            if evidence and evidence != value:
+                line += f" — evidence: {evidence}"
+            detail_lines.append(line)
+        sections.append("\n".join(detail_lines))
+
     attachment_lines = ["## Attachments", ""]
-    if not parsed.attachments:
-        attachment_lines.append("No attachments.")
-    for item, metadata in zip(parsed.attachments, attachments, strict=True):
+    for item, file_url in zip(parsed.attachments, attachment_urls, strict=True):
         label = (item.original_name or item.stored_name).replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
         attachment_lines.append(
-            f"- [{label}]({metadata['file_url']}) — {item.media_type}; "
-            f"{len(item.data)} bytes; SHA-256 `{item.sha256}`"
+            f"- [{label}]({file_url}) — {item.media_type}; "
+            f"{_human_size(len(item.data))}"
         )
-    sections.append("\n".join(attachment_lines))
+    if parsed.attachments:
+        sections.append("\n".join(attachment_lines))
 
     if extractions:
         extracted_lines = ["## Extracted attachment text", ""]
@@ -156,7 +191,10 @@ def build_note(
             # Extracted text is untrusted and must not terminate a managed region.
             included = re.sub(r"<!--\s*mailkeep:", "&lt;!-- mailkeep:", included,
                               flags=re.IGNORECASE)
-            included = re.sub(r"(?m)^# Page (\d+)$", r"#### Page \1", included)
+            if extraction.parser == "pypdf-layout":
+                included = _fixed_width_pages(included)
+            else:
+                included = re.sub(r"(?m)^# Page (\d+)$", r"#### Page \1", included)
             extracted_lines.extend([included.rstrip(), ""])
             if len(text) > allowance:
                 link = artifact.resolve().as_uri()
@@ -165,6 +203,7 @@ def build_note(
                     "",
                 ])
         sections.append("\n".join(extracted_lines).rstrip())
+    sections.append(f"## Source\n\n[Open original email]({stored.eml_path.resolve().as_uri()})")
     generated_body = "\n\n".join(section for section in sections if section)
     generated_body = re.sub(
         r"<!--\s*mailkeep:", "&lt;!-- mailkeep:", generated_body,
@@ -178,10 +217,10 @@ def build_note(
         yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
     )
     digest = _managed_hash(roundtrip_front, generated)
-    front["managed_sha256"] = digest
     text = (
         "---\n" + yaml.safe_dump(front, allow_unicode=True, sort_keys=False).rstrip() +
-        "\n---\n\n" + generated + "\n\n" + PERSONAL_START + _personal(existing) +
+        f"\n---\n\n<!-- mailkeep:managed-sha256: {digest} -->\n\n" +
+        generated + "\n\n" + PERSONAL_START + _personal(existing) +
         PERSONAL_END + "\n"
     )
     return text, digest
@@ -216,6 +255,7 @@ def parse_managed(text: str) -> tuple[dict[str, Any], str]:
 
 def verify_managed(text: str) -> tuple[bool, str, str]:
     front, generated = parse_managed(text)
-    expected = str(front.get("managed_sha256", ""))
+    hidden = MANAGED_HASH_RE.search(text)
+    expected = hidden.group(1) if hidden else str(front.get("managed_sha256", ""))
     actual = _managed_hash(front, generated)
     return expected == actual, expected, actual

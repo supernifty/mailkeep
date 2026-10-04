@@ -46,6 +46,7 @@ uv run mailkeep --config config.yaml archive
 uv run mailkeep --config config.yaml verify
 uv run mailkeep --config config.yaml status --json
 uv run mailkeep --config config.yaml extract-attachments --dry-run
+uv run mailkeep --config config.yaml regenerate-notes --dry-run
 uv run mailkeep --config config.yaml organize-notes --dry-run
 uv run mailkeep --config config.yaml prune --dry-run
 ```
@@ -64,6 +65,14 @@ messages lacking a reliable date under `Mailkeep/undated/`. Upgrade an existing
 flat note directory by reviewing `organize-notes --dry-run` and then running
 `organize-notes --execute`; note contents and personal regions are moved without
 being regenerated.
+
+Obsidian front matter is intentionally concise: date, sender, recipient,
+subject, non-empty classification fields, and non-empty configured extraction
+fields such as `amount` and `due_date`. Archive IDs, hashes, paths, parser
+details, and other preservation provenance remain in SQLite and archive
+manifests rather than cluttering Properties. `regenerate-notes --execute`
+upgrades existing managed notes locally while preserving personal regions and
+without making Gmail or AI calls.
 
 For a periodic scheduler, run `scripts/mailkeep-periodic.sh`. It uses the
 checkout's `.venv/bin/mailkeep` and `config.yaml`, archives first, and runs

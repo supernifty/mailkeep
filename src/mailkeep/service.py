@@ -142,6 +142,7 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
                             parsed, stored, config.account.account_id, config.paths.archive_root,
                             enrichment, existing=existing,
                             extractions=state.latest_extractions(stored.archive_id),
+                            property_fields=config.extraction_fields,
                             note_chars_per_attachment=config.attachment_extraction.note_chars_per_attachment,
                             note_chars_per_message=config.attachment_extraction.note_chars_per_message,
                         )
@@ -206,6 +207,7 @@ def _regenerate_note(config: Config, state: State, archive_id: str) -> str:
         parsed, stored, config.account.account_id, config.paths.archive_root, enrichment,
         existing=existing, processed_at=processed_at,
         extractions=state.latest_extractions(archive_id),
+        property_fields=config.extraction_fields,
         note_chars_per_attachment=config.attachment_extraction.note_chars_per_attachment,
         note_chars_per_message=config.attachment_extraction.note_chars_per_message,
     )
@@ -233,6 +235,51 @@ def extract_attachments(config: Config, execute: bool, archive_id: str | None = 
             output.append({"archive_id": current, "attachments": items,
                            "note": note, "outcome": "complete"})
     return output
+
+
+def regenerate_notes(config: Config, execute: bool,
+                     archive_id: str | None = None) -> list[dict[str, Any]]:
+    if not config.paths.database.exists():
+        raise RuntimeError("database does not exist")
+    state = State(config.paths.database, readonly=not execute)
+    with state.connect() as conn:
+        if archive_id is not None:
+            row = conn.execute(
+                "SELECT archive_id,note_relpath,markdown_state FROM archives WHERE archive_id=?",
+                (archive_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown archive: {archive_id}")
+            if row["markdown_state"] != "complete":
+                raise RuntimeError(f"archive has no complete managed note: {archive_id}")
+            rows = [row]
+        else:
+            rows = conn.execute(
+                "SELECT archive_id,note_relpath,markdown_state FROM archives "
+                "WHERE markdown_state='complete' ORDER BY archive_id"
+            ).fetchall()
+    plan = [{"archive_id": row["archive_id"], "note": row["note_relpath"],
+             "action": "regenerate"} for row in rows]
+    if not execute:
+        return plan
+
+    with data_lock(config.paths.archive_root):
+        for row in rows:
+            report = verify_archive(
+                state, config.paths.archive_root, config.notes_dir, row["archive_id"],
+                include_derived=False, include_note=False,
+            )
+            if not report.ok:
+                raise RuntimeError("; ".join(report.errors))
+        for item in plan:
+            item["note"] = _regenerate_note(config, state, item["archive_id"])
+            report = verify_archive(
+                state, config.paths.archive_root, config.notes_dir, item["archive_id"]
+            )
+            if not report.ok:
+                raise RuntimeError("; ".join(report.errors))
+            item["action"] = "regenerated"
+    return plan
 
 
 def prune(config: Config, provider: Provider, execute: bool) -> list[dict[str, Any]]:

@@ -6,7 +6,8 @@ from pathlib import Path
 
 from mailkeep.models import RemoteMessage
 from mailkeep.models import EnrichmentResult
-from mailkeep.service import archive, dry_run_archive, organize_notes, prune, verify
+from mailkeep.service import (archive, dry_run_archive, organize_notes, prune,
+                              regenerate_notes, verify)
 from mailkeep.state import State
 
 
@@ -72,6 +73,40 @@ def test_full_archive_reaches_verified_before_label_change(config_factory, plain
     assert Path(row["note_relpath"]).parent == Path("2024/10")
     assert (config.notes_dir / row["note_relpath"]).is_file()
     assert remote["provider_state"] == "processed"
+    assert verify(config).ok
+
+
+def test_regenerate_notes_is_read_only_then_preserves_personal_text(config_factory, plain_raw):
+    config = config_factory()
+    archive(config, FakeProvider([plain_raw]))
+    state = State(config.paths.database)
+    with state.connect() as conn:
+        row = conn.execute("SELECT archive_id,note_relpath FROM archives").fetchone()
+    note = config.notes_dir / row["note_relpath"]
+    legacy = note.read_text(encoding="utf-8").replace(
+        "subject: Receipt", "archive_id: legacy-noise\nsubject: Receipt"
+    ).replace(
+        "<!-- mailkeep:personal:start -->\n<!-- mailkeep:personal:end -->",
+        "<!-- mailkeep:personal:start -->\nKeep this exactly.\n<!-- mailkeep:personal:end -->",
+    )
+    note.write_text(legacy, encoding="utf-8")
+    before_note = note.read_bytes()
+    before_db = config.paths.database.read_bytes()
+
+    plan = regenerate_notes(config, execute=False)
+
+    assert plan == [{"archive_id": row["archive_id"],
+                     "note": row["note_relpath"], "action": "regenerate"}]
+    assert note.read_bytes() == before_note
+    assert config.paths.database.read_bytes() == before_db
+
+    result = regenerate_notes(config, execute=True)
+
+    assert result[0]["action"] == "regenerated"
+    regenerated = note.read_text(encoding="utf-8")
+    assert "Keep this exactly." in regenerated
+    assert "archive_id:" not in regenerated
+    assert "managed_sha256:" not in regenerated.split("---", 2)[1]
     assert verify(config).ok
 
 

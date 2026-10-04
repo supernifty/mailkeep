@@ -16,7 +16,7 @@ from .config import Config, load_config
 from .enrichment import list_jev_models
 from .provider import connect
 from .service import (archive, dry_run_archive, extract_attachments,
-                      organize_notes, prune, scan, verify)
+                      organize_notes, prune, regenerate_notes, scan, verify)
 from .state import State
 
 
@@ -48,6 +48,13 @@ def parser() -> argparse.ArgumentParser:
     extract_modes.add_argument("--execute", action="store_true")
     extract_parser.add_argument("--archive-id")
     extract_parser.add_argument("--retry-failed", action="store_true")
+    regenerate_parser = commands.add_parser(
+        "regenerate-notes", help="regenerate managed Obsidian reading notes"
+    )
+    regenerate_modes = regenerate_parser.add_mutually_exclusive_group(required=True)
+    regenerate_modes.add_argument("--dry-run", action="store_true")
+    regenerate_modes.add_argument("--execute", action="store_true")
+    regenerate_parser.add_argument("--archive-id")
     prune_parser = commands.add_parser("prune", help="evaluate or execute retention")
     modes = prune_parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--dry-run", action="store_true")
@@ -184,6 +191,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except Exception as exc:
             print(f"extract-attachments error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "regenerate-notes":
+        try:
+            result = regenerate_notes(
+                config, execute=args.execute, archive_id=args.archive_id,
+            )
+            _print_json(result)
+            return 0
+        except Exception as exc:
+            print(f"regenerate-notes error: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
 
     remote = None

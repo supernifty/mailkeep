@@ -38,7 +38,7 @@ def parser_identity(path: Path, media_type: str) -> tuple[str, str, str]:
     with path.open("rb") as handle:
         signature = handle.read(5)
     if signature == b"%PDF-":
-        return "pdf", "pypdf", pypdf.__version__
+        return "pdf", "pypdf-layout", pypdf.__version__
     if media_type.lower() == "text/plain":
         return "text", "python-codecs", "1"
     return "unsupported", "none", "1"
@@ -228,11 +228,12 @@ def extract_archive(config: Config, state: State, archive_id: str,
         remaining = extraction.timeout_seconds_per_message - elapsed
         if remaining <= 0:
             result = {"outcome": "message_timeout", "error": "message extraction time limit exceeded"}
-        elif row["size"] > (extraction.max_pdf_bytes if item["parser"] == "pypdf"
+        elif row["size"] > (extraction.max_pdf_bytes if item["parser"] == "pypdf-layout"
                             else extraction.max_text_bytes):
             result = {"outcome": "oversized", "error": "attachment exceeds configured byte limit"}
         else:
-            result = _run_worker(config, path, "pdf" if item["parser"] == "pypdf" else "text",
+            result = _run_worker(config, path,
+                                 "pdf" if item["parser"] == "pypdf-layout" else "text",
                                  row["declared_charset"],
                                  min(extraction.timeout_seconds_per_attachment, remaining))
         published: dict[str, Any] = {}

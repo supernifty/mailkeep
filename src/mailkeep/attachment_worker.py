@@ -79,7 +79,11 @@ def _pdf(path: Path, max_pages: int, maximum: int) -> dict[str, Any]:
                 any_images = any_images or bool(page.images)
             except Exception:
                 pass
-            extracted = page.extract_text() or ""
+            extracted = page.extract_text(
+                extraction_mode="layout",
+                layout_mode_space_vertically=False,
+                layout_mode_strip_rotated=False,
+            ) or ""
             any_text = any_text or bool(extracted.strip())
             heading = f"# Page {number}\n\n"
             start = sum(len(chunk) for chunk in chunks)

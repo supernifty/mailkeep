@@ -26,3 +26,12 @@ def test_extract_attachments_cli_modes_and_scope():
     assert args.execute and args.retry_failed and args.archive_id == "archive-1"
     with pytest.raises(SystemExit):
         parser().parse_args(["extract-attachments"])
+
+
+def test_regenerate_notes_cli_modes_and_scope():
+    args = parser().parse_args([
+        "regenerate-notes", "--execute", "--archive-id", "archive-1",
+    ])
+    assert args.execute and args.archive_id == "archive-1"
+    with pytest.raises(SystemExit):
+        parser().parse_args(["regenerate-notes"])
