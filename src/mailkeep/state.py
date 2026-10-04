@@ -7,8 +7,10 @@ from datetime import UTC, datetime, timedelta
 from importlib import resources
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import quote
 
-from .models import EnrichmentResult, ParsedMessage, RemoteMessage, StoredObject
+from .models import (AttachmentExtraction, EnrichmentResult, ParsedMessage,
+                     RemoteMessage, StoredObject)
 
 
 def utcnow() -> str:
@@ -16,15 +18,21 @@ def utcnow() -> str:
 
 
 class State:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, readonly: bool = False):
         self.path = path
+        self.readonly = readonly
 
     def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path)
+        if self.readonly:
+            uri = f"file:{quote(str(self.path.resolve()))}?mode=ro"
+            conn = sqlite3.connect(uri, uri=True)
+        else:
+            conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        if not self.readonly:
+            conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
     def initialize(self) -> None:
@@ -143,12 +151,15 @@ class State:
                 "UPDATE remote_messages SET archive_id=? WHERE id=?",
                 (stored.archive_id, remote_id),
             )
-            conn.execute("DELETE FROM attachments WHERE archive_id=?", (stored.archive_id,))
             conn.executemany(
-                "INSERT INTO attachments(archive_id,ordinal,original_name,stored_name,media_type,disposition,content_id,size,sha256,decode_error) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO attachments(archive_id,ordinal,original_name,stored_name,media_type,disposition,content_id,size,sha256,decode_error,declared_charset) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(archive_id,ordinal) DO UPDATE SET "
+                "original_name=excluded.original_name,stored_name=excluded.stored_name,media_type=excluded.media_type,"
+                "disposition=excluded.disposition,content_id=excluded.content_id,size=excluded.size,"
+                "sha256=excluded.sha256,decode_error=excluded.decode_error,declared_charset=excluded.declared_charset",
                 [(stored.archive_id, a.ordinal, a.original_name, a.stored_name, a.media_type,
                   a.disposition, a.content_id, len(a.data), a.sha256, a.decode_error)
+                  + (a.declared_charset,)
                  for a in parsed.attachments],
             )
             self._event(conn, stored.archive_id, remote_id, "preservation", None, "preserved")
@@ -249,6 +260,155 @@ class State:
             duration_ms=row["duration_ms"], raw=payload.get("raw", {}),
         )
 
+    def attachment_rows(self, archive_id: str | None = None) -> list[sqlite3.Row]:
+        query = (
+            "SELECT t.*,a.object_relpath FROM attachments t "
+            "JOIN archives a ON a.archive_id=t.archive_id"
+        )
+        parameters: tuple[Any, ...] = ()
+        if archive_id is not None:
+            query += " WHERE t.archive_id=?"
+            parameters = (archive_id,)
+        query += " ORDER BY t.archive_id,CAST(t.ordinal AS INTEGER),t.ordinal"
+        with self.connect() as conn:
+            return conn.execute(query, parameters).fetchall()
+
+    def extraction_result(self, attachment_sha256: str, parser: str,
+                          parser_version: str, config_hash: str) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            try:
+                return conn.execute(
+                    "SELECT * FROM attachment_extraction_results WHERE attachment_sha256=? "
+                    "AND parser=? AND parser_version=? AND config_hash=?",
+                    (attachment_sha256, parser, parser_version, config_hash),
+                ).fetchone()
+            except sqlite3.OperationalError as exc:
+                if "no such table" in str(exc):
+                    return None
+                raise
+
+    def extraction_attempt_exists(self, attachment_id: int, parser: str,
+                                  parser_version: str, config_hash: str) -> bool:
+        with self.connect() as conn:
+            try:
+                row = conn.execute(
+                    "SELECT 1 FROM attachment_extraction_attempts WHERE attachment_id=? "
+                    "AND parser=? AND parser_version=? AND config_hash=? LIMIT 1",
+                    (attachment_id, parser, parser_version, config_hash),
+                ).fetchone()
+            except sqlite3.OperationalError as exc:
+                if "no such table" in str(exc):
+                    return False
+                raise
+            return row is not None
+
+    def record_extraction(
+        self, *, archive_id: str, attachment_id: int, attachment_sha256: str,
+        parser: str, parser_version: str, config_hash: str, started_at: str,
+        outcome: str, error: str | None, cache_reused: bool,
+        artifact_relpath: str | None = None, manifest_relpath: str | None = None,
+        output_sha256: str | None = None, output_size: int | None = None,
+        page_count: int | None = None,
+        page_boundaries: list[dict[str, int]] | None = None,
+        warnings: list[str] | None = None, cacheable: bool = False,
+    ) -> int | None:
+        result_id: int | None = None
+        with self.transaction() as conn:
+            if cacheable:
+                conn.execute(
+                    "INSERT OR IGNORE INTO attachment_extraction_results("
+                    "attachment_sha256,parser,parser_version,config_hash,outcome,artifact_relpath,"
+                    "manifest_relpath,output_sha256,output_size,page_count,page_boundaries_json,"
+                    "warnings_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (attachment_sha256, parser, parser_version, config_hash, outcome,
+                     artifact_relpath, manifest_relpath, output_sha256, output_size, page_count,
+                     json.dumps(page_boundaries or [], sort_keys=True),
+                     json.dumps(warnings or [], sort_keys=True), utcnow()),
+                )
+                result_id = conn.execute(
+                    "SELECT id FROM attachment_extraction_results WHERE attachment_sha256=? "
+                    "AND parser=? AND parser_version=? AND config_hash=?",
+                    (attachment_sha256, parser, parser_version, config_hash),
+                ).fetchone()[0]
+            number = conn.execute(
+                "SELECT COALESCE(MAX(attempt_number),0)+1 FROM attachment_extraction_attempts "
+                "WHERE attachment_id=? AND parser=? AND parser_version=? AND config_hash=?",
+                (attachment_id, parser, parser_version, config_hash),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO attachment_extraction_attempts(archive_id,attachment_id,"
+                "attachment_sha256,parser,parser_version,config_hash,attempt_number,started_at,"
+                "finished_at,outcome,error,cache_reused,result_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (archive_id, attachment_id, attachment_sha256, parser, parser_version,
+                 config_hash, number, started_at, utcnow(), outcome, error,
+                 int(cache_reused), result_id),
+            )
+        return result_id
+
+    def record_cached_extraction(self, row: sqlite3.Row, result: sqlite3.Row) -> None:
+        self.record_extraction(
+            archive_id=row["archive_id"], attachment_id=row["id"],
+            attachment_sha256=row["sha256"], parser=result["parser"],
+            parser_version=result["parser_version"], config_hash=result["config_hash"],
+            started_at=utcnow(), outcome=result["outcome"], error=None,
+            cache_reused=True, artifact_relpath=result["artifact_relpath"],
+            manifest_relpath=result["manifest_relpath"],
+            output_sha256=result["output_sha256"], output_size=result["output_size"],
+            page_count=result["page_count"],
+            page_boundaries=json.loads(result["page_boundaries_json"]),
+            warnings=json.loads(result["warnings_json"]), cacheable=True,
+        )
+
+    def latest_extractions(self, archive_id: str) -> dict[str, AttachmentExtraction]:
+        with self.connect() as conn:
+            try:
+                rows = conn.execute(
+                    "SELECT x.*,r.artifact_relpath,r.manifest_relpath,r.output_sha256,r.output_size,"
+                    "r.page_boundaries_json,r.warnings_json,t.ordinal FROM attachment_extraction_attempts x "
+                    "JOIN attachments t ON t.id=x.attachment_id "
+                    "LEFT JOIN attachment_extraction_results r ON r.id=x.result_id "
+                    "WHERE x.archive_id=? AND x.id IN (SELECT MAX(x2.id) FROM "
+                    "attachment_extraction_attempts x2 WHERE x2.archive_id=? GROUP BY x2.attachment_id)",
+                    (archive_id, archive_id),
+                ).fetchall()
+            except sqlite3.OperationalError as exc:
+                if "no such table" in str(exc):
+                    return {}
+                raise
+        return {
+            row["ordinal"]: AttachmentExtraction(
+                attachment_id=row["attachment_id"], ordinal=row["ordinal"],
+                attachment_sha256=row["attachment_sha256"], outcome=row["outcome"],
+                parser=row["parser"], parser_version=row["parser_version"],
+                config_hash=row["config_hash"],
+                warnings=tuple(json.loads(row["warnings_json"] or "[]")),
+                page_boundaries=tuple(json.loads(row["page_boundaries_json"] or "[]")),
+                artifact_relpath=row["artifact_relpath"],
+                manifest_relpath=row["manifest_relpath"],
+                output_sha256=row["output_sha256"], output_size=row["output_size"],
+                cache_reused=bool(row["cache_reused"]), error=row["error"],
+            ) for row in rows
+        }
+
+    def latest_enrichment(self, archive_id: str) -> EnrichmentResult | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM enrichment_results WHERE archive_id=? ORDER BY id DESC LIMIT 1",
+                (archive_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["result_json"])
+        return EnrichmentResult(
+            provider=row["provider"], model=row["model"],
+            categories=payload.get("categories", {}),
+            document_type=payload.get("document_type"),
+            document_type_confidence=payload.get("document_type_confidence"),
+            entities=tuple(payload.get("entities", [])), request_id=row["request_id"],
+            input_hash=row["input_sha256"], config_hash=row["config_hash"],
+            duration_ms=row["duration_ms"], raw=payload.get("raw", {}),
+        )
+
     def complete_verified(self, archive_id: str) -> bool:
         with self.connect() as conn:
             row = conn.execute(
@@ -302,6 +462,17 @@ class State:
                     f"SELECT {column},COUNT(*) FROM {table} GROUP BY {column}"
                 )}
             failures = conn.execute("SELECT COUNT(*) FROM attempts WHERE outcome='failed'").fetchone()[0]
+            try:
+                dimensions["attachment_extraction"] = {
+                    r[0]: r[1] for r in conn.execute(
+                        "SELECT outcome,COUNT(*) FROM attachment_extraction_attempts x "
+                        "WHERE id IN (SELECT MAX(id) FROM attachment_extraction_attempts GROUP BY attachment_id) "
+                        "GROUP BY outcome"
+                    )
+                }
+            except sqlite3.OperationalError as exc:
+                if "no such table" not in str(exc):
+                    raise
             recent = [dict(r) for r in conn.execute("SELECT * FROM events ORDER BY id DESC LIMIT 10")]
             return {"states": dimensions, "failed_attempts": failures, "recent_events": recent}
 

@@ -20,7 +20,9 @@ has no backup gate; arrange and test backup separately before enabling deletion.
 
 AI enrichment is metadata only. It cannot make an archive valid and is never a
 deletion gate. Hosted redaction is risk reduction, not anonymization: prose may
-still reveal sensitive meaning, and attachment bytes are never submitted.
+still reveal sensitive meaning, and attachment bytes or extracted attachment
+text are never submitted. Local attachment extraction is also not a deletion
+gate; unsupported or failed extraction remains visible and retryable.
 
 ## Install
 
@@ -43,6 +45,7 @@ uv run mailkeep --config config.yaml archive --dry-run
 uv run mailkeep --config config.yaml archive
 uv run mailkeep --config config.yaml verify
 uv run mailkeep --config config.yaml status --json
+uv run mailkeep --config config.yaml extract-attachments --dry-run
 uv run mailkeep --config config.yaml organize-notes --dry-run
 uv run mailkeep --config config.yaml prune --dry-run
 ```
@@ -108,13 +111,16 @@ folder. SQLite uses WAL mode. A live database backup must use SQLite's backup
 API or include the database, `-wal`, and `-shm` files as one consistent unit.
 
 Attachments are retained only in the archive. V1 records their metadata but
-does not parse PDF, Office, image, or OCR content. Archive-relative paths are
-authoritative; absolute `file://` note links are a Mac convenience and need note
-regeneration if the archive moves.
+also extracts local text from text-layer PDFs and `text/plain` by default.
+Original links remain visible for every attachment. Scanned/image-only PDFs,
+images, Office formats, and OCR are recorded as unsupported or non-text in this
+phase. Archive-relative paths are authoritative; absolute `file://` note links
+are a Mac convenience and need note regeneration if the archive moves.
 
-Attachment-content parsing is a required future capability. Its intended
-formats, provenance, security constraints, Obsidian representation, acceptance
-criteria, and unresolved lifecycle decisions are recorded in
+Phase-1 extraction behavior, provenance, isolation, limits, caching, and note
+representation are specified in
+[`specs/attachment-content-v1.md`](specs/attachment-content-v1.md). Deferred OCR,
+Office, and attachment-aware enrichment requirements are recorded in
 [`specs/future-attachment-content.md`](specs/future-attachment-content.md).
 
 ## Development

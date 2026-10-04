@@ -145,7 +145,8 @@ def parse_message(raw: bytes) -> ParsedMessage:
         attachment = Attachment(
             ordinal=str(index), original_name=filename, stored_name=stored,
             media_type=media_type, disposition=disposition, content_id=cid,
-            data=data, sha256=hashlib.sha256(data).hexdigest(), decode_error=error,
+            data=data, sha256=hashlib.sha256(data).hexdigest(),
+            declared_charset=part.get_content_charset(), decode_error=error,
         )
         attachments.append(attachment)
         if cid:

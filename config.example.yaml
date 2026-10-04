@@ -30,6 +30,17 @@ document_type_confidence: 0.70
 extraction_fields:
   - amount
   - due_date
+attachment_extraction:
+  enabled: true
+  max_pdf_bytes: 26214400
+  max_pdf_pages: 100
+  max_text_bytes: 2097152
+  max_output_bytes: 5242880
+  max_supported_attachments_per_message: 20
+  timeout_seconds_per_attachment: 60
+  timeout_seconds_per_message: 120
+  note_chars_per_attachment: 50000
+  note_chars_per_message: 100000
 enrichment:
   provider: jev
   model: jev-latest

@@ -58,6 +58,7 @@ def metadata_for(archive_id: str, raw_sha256: str, parsed: ParsedMessage) -> dic
                 "stored_name": a.stored_name, "media_type": a.media_type,
                 "disposition": a.disposition, "content_id": a.content_id,
                 "size": len(a.data), "sha256": a.sha256,
+                "declared_charset": a.declared_charset,
                 "decode_error": a.decode_error,
             }
             for a in parsed.attachments

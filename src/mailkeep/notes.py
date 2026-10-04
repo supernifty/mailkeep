@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from .models import EnrichmentResult, ParsedMessage, StoredObject
+from .models import AttachmentExtraction, EnrichmentResult, ParsedMessage, StoredObject
 from .mime import safe_filename
 
 
@@ -17,6 +17,16 @@ GENERATED_START = "<!-- mailkeep:generated:start -->"
 GENERATED_END = "<!-- mailkeep:generated:end -->"
 PERSONAL_START = "<!-- mailkeep:personal:start -->"
 PERSONAL_END = "<!-- mailkeep:personal:end -->"
+
+
+def _safe_archive_path(root: Path, relative: str) -> Path:
+    rel = Path(relative)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise ValueError(f"unsafe derived artifact path: {relative}")
+    path = (root / rel).resolve()
+    if not path.is_relative_to(root.resolve()):
+        raise ValueError(f"derived artifact path escapes archive: {relative}")
+    return path
 
 
 def _managed_hash(front: dict[str, Any], generated: str) -> str:
@@ -69,6 +79,9 @@ def build_note(
     enrichment: EnrichmentResult,
     existing: str | None = None,
     processed_at: str | None = None,
+    extractions: dict[str, AttachmentExtraction] | None = None,
+    note_chars_per_attachment: int = 50_000,
+    note_chars_per_message: int = 100_000,
 ) -> tuple[str, str]:
     object_rel = stored.object_dir.relative_to(archive_root)
     eml_rel = object_rel / "original.eml"
@@ -76,6 +89,7 @@ def build_note(
     for item in parsed.attachments:
         relative = object_rel / "attachments" / item.stored_name
         absolute = archive_root / relative
+        extraction = (extractions or {}).get(item.ordinal)
         attachments.append({
             "name": item.original_name,
             "media_type": item.media_type,
@@ -83,6 +97,9 @@ def build_note(
             "sha256": item.sha256,
             "path": relative.as_posix(),
             "file_url": absolute.resolve().as_uri(),
+            "extraction_outcome": extraction.outcome if extraction else None,
+            "extracted_sha256": extraction.output_sha256 if extraction else None,
+            "extracted_path": extraction.artifact_relpath if extraction else None,
         })
     chosen = [name for name, score in enrichment.categories.items() if score >= 0]
     front: dict[str, Any] = {
@@ -106,7 +123,54 @@ def build_note(
         "enrichment_model": enrichment.model,
         "processed_at": processed_at or datetime.now(UTC).isoformat(),
     }
-    generated = f"{GENERATED_START}\n\n{parsed.body_markdown.strip()}\n\n{GENERATED_END}"
+    sections = [parsed.body_markdown.strip()]
+    attachment_lines = ["## Attachments", ""]
+    if not parsed.attachments:
+        attachment_lines.append("No attachments.")
+    for item, metadata in zip(parsed.attachments, attachments, strict=True):
+        label = (item.original_name or item.stored_name).replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+        attachment_lines.append(
+            f"- [{label}]({metadata['file_url']}) — {item.media_type}; "
+            f"{len(item.data)} bytes; SHA-256 `{item.sha256}`"
+        )
+    sections.append("\n".join(attachment_lines))
+
+    if extractions:
+        extracted_lines = ["## Extracted attachment text", ""]
+        remaining = note_chars_per_message
+        for item in parsed.attachments:
+            extraction = extractions.get(item.ordinal)
+            if extraction is None:
+                continue
+            name = item.original_name or item.stored_name
+            extracted_lines.extend([f"### {name}", ""])
+            if extraction.outcome != "success" or not extraction.artifact_relpath:
+                detail = f": {extraction.error}" if extraction.error else ""
+                extracted_lines.extend([f"Extraction status: `{extraction.outcome}`{detail}", ""])
+                continue
+            artifact = _safe_archive_path(archive_root, extraction.artifact_relpath)
+            text = artifact.read_text(encoding="utf-8")
+            allowance = max(0, min(note_chars_per_attachment, remaining))
+            included = text[:allowance]
+            remaining -= len(included)
+            # Extracted text is untrusted and must not terminate a managed region.
+            included = re.sub(r"<!--\s*mailkeep:", "&lt;!-- mailkeep:", included,
+                              flags=re.IGNORECASE)
+            included = re.sub(r"(?m)^# Page (\d+)$", r"#### Page \1", included)
+            extracted_lines.extend([included.rstrip(), ""])
+            if len(text) > allowance:
+                link = artifact.resolve().as_uri()
+                extracted_lines.extend([
+                    f"_Text truncated in this note; [open the complete extracted text]({link})._",
+                    "",
+                ])
+        sections.append("\n".join(extracted_lines).rstrip())
+    generated_body = "\n\n".join(section for section in sections if section)
+    generated_body = re.sub(
+        r"<!--\s*mailkeep:", "&lt;!-- mailkeep:", generated_body,
+        flags=re.IGNORECASE,
+    )
+    generated = f"{GENERATED_START}\n\n{generated_body}\n\n{GENERATED_END}"
     # Hash the YAML round-trip representation that verification will see. YAML
     # may normalize scalar types, so hashing the pre-serialization Python
     # objects would make a freshly written note fail its own verification.

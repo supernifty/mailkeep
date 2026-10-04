@@ -1,6 +1,6 @@
 # Future requirement: attachment-content parsing and enrichment
 
-Status: Required future capability; not implemented in Mailkeep v1
+Status: Later phases; phase 1 is specified in `attachment-content-v1.md`
 
 ## Problem and user need
 
@@ -10,20 +10,19 @@ body while their amount, due date, reference, and substantive text are stored in
 a PDF, Office document, or scanned image. Body-only enrichment therefore cannot
 provide a complete Obsidian index.
 
-Mailkeep must gain a post-v1 attachment-content pipeline that extracts readable
-content and permits classification and entity extraction from supported
-attachments without weakening exact-byte preservation.
+Mailkeep phase 1 extracts text-layer PDFs and plain text without weakening
+exact-byte preservation. This document now covers the deferred formats, OCR,
+and attachment-aware enrichment that remain after phase 1.
 
 ## Intended behavior
 
 1. Preserve and verify the original attachment bytes before parsing them.
    Extracted text and OCR are derived artifacts; they never replace or modify
    the archived attachment.
-2. Parse supported text-bearing formats, initially:
-   - text-based PDF;
+2. Extend the phase-1 pipeline to additional text-bearing formats:
    - scanned PDF and common image formats through OCR;
    - DOCX, XLSX, and PPTX without executing macros, formulas, or embedded code;
-   - plain text and other safe, explicitly supported textual formats.
+   - other safe, explicitly supported textual formats.
 3. Record an independent extraction lifecycle per attachment, including parser
    name and version, configuration hash, attempt number, timestamps, outcome,
    warnings, and errors.
@@ -108,14 +107,11 @@ contain concise summaries, selected evidence, extraction status, and links.
 - Extraction failure remains independently visible and retryable without
   damaging the preservation object or erasing a prior successful extraction.
 
-## Decisions required before implementation
+## Decisions required before later-phase implementation
 
-- Select and threat-model the concrete PDF, Office, and OCR libraries and their
-  process-isolation strategy.
-- Decide whether attachment extraction is mandatory before a message may move
-  to `Mailkeep-Processed`, configurable per media type, or an asynchronous
-  post-preservation stage. V1 behavior is unchanged until this is specified.
-- Define text-size and document-size defaults, OCR languages, table
+- Select and threat-model the concrete Office and OCR libraries within the
+  phase-1 worker-isolation boundary.
+- Define OCR languages, image/pixel and container expansion limits, table
   representation, and whether spreadsheet formula text or cached displayed
   values should be indexed.
 - Define how re-extraction and note regeneration interact with retention for a

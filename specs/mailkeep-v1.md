@@ -20,15 +20,16 @@ Version 1 supports one configured account. Gmail with an app password is the
 first provider with tested label and Trash operations. Generic IMAPS may scan
 and preserve messages but may not perform destructive operations.
 
-Version 1 does not permanently expunge Gmail messages, index attachment
-contents, perform OCR, support OAuth, support multiple accounts, run as a
-daemon, install a launchd job, or prove the existence of an independent backup.
+Version 1 does not permanently expunge Gmail messages, perform OCR, parse Office
+attachments, make Jev attachment-aware, support OAuth, support multiple
+accounts, run as a daemon, or prove the existence of an independent backup.
 Absolute file URLs are a Mac convenience and may become stale if data moves;
 archive-relative paths are authoritative.
 
-Attachment-content parsing, including PDF and Office extraction and OCR, is a
-required post-v1 capability specified in `specs/future-attachment-content.md`.
-That future requirement does not change the v1 lifecycle or deletion gates.
+Phase-1 text-layer PDF and plain-text extraction is specified in
+`specs/attachment-content-v1.md`. Office extraction, OCR, and attachment-aware
+enrichment remain deferred in `specs/future-attachment-content.md`. Extraction
+does not change preservation, provider movement, or deletion gates.
 
 ## 3. Safety invariants
 
@@ -54,13 +55,16 @@ That future requirement does not change the v1 lifecycle or deletion gates.
    enrichment is called only when explicitly requested.
 10. Credentials are read from named environment variables and never written to
     YAML, SQLite, notes, or logs.
+11. Attachment extraction operates only on verified preserved bytes in an
+    isolated local worker. Its failure is recorded but is not a preservation,
+    provider-movement, enrichment, or deletion gate.
 
 ## 4. Architecture
 
 The `mailkeep` package has modules for configuration, IMAP/provider access,
 MIME parsing, atomic storage, SQLite state, enrichment, Markdown rendering,
-verification, retention, locking, and CLI orchestration. Cross-module values
-use small dataclasses rather than provider response objects.
+attachment extraction, verification, retention, locking, and CLI orchestration.
+Cross-module values use small dataclasses rather than provider response objects.
 
 Mutating commands acquire an exclusive lock beneath the data root. A later
 `archive` run reconciles stale staging directories and resumable database
@@ -79,6 +83,8 @@ Configuration is YAML and rejects unknown or invalid values. It defines:
   extraction field definitions;
 - enrichment provider (`jev`, `ollama`, or `none`), provider endpoint, exact
   model/build, API-key environment-variable name, privacy mode, and timeout.
+- attachment extraction enablement and independent PDF, page, text, output,
+  attachment-count, elapsed-time, and note-embedding limits.
 
 Paths expand `~` and environment variables. Relative paths resolve relative to
 the configuration file. An optional env file is loaded only when explicitly
@@ -99,8 +105,9 @@ foreign keys, a busy timeout, and WAL. Live backups must use SQLite's backup API
 or copy the database together with its WAL and shared-memory files.
 
 The schema carries stable account identity and stores remote occurrences,
-preservation objects, attachment manifests, enrichment results, note metadata,
-stage attempts, diagnostics, and immutable transition events.
+preservation objects, attachment manifests, enrichment results, attachment
+extraction results and immutable attempts, note metadata, stage attempts,
+diagnostics, and immutable transition events.
 
 Lifecycle dimensions are independent:
 
@@ -119,6 +126,12 @@ means Mailkeep successfully moved it to Trash.
 Every attempt records stage, attempt number, start/end time, outcome, error,
 and configuration hash. Transition events are append-only. A failure updates
 only its own dimension and never erases a prior success.
+
+Attachment extraction has an independent per-attachment history rather than an
+archive completion dimension. Successful or deterministic results are cached by
+attachment SHA-256, parser/version, and extraction configuration hash. The
+enrichment cache retains its pre-extraction configuration fingerprint so
+changing attachment extraction does not invalidate body-only Jev results.
 
 ## 7. Discovery and provider behavior
 
@@ -172,6 +185,15 @@ directory is a sibling named `.<archive-id>.staging-<token>`. Reconciliation may
 remove only a staging directory that matches this strict pattern and has no
 active lock; it never deletes a completed object.
 
+After original verification, enabled phase-1 extraction reads these attachment
+files without modifying them. Text-layer PDFs are detected by `%PDF-` content
+signature and parsed with locked `pypdf`; declared `text/plain` uses its charset
+or strict UTF-8. A subprocess and explicit resource limits isolate parser
+timeouts, crashes, malformed/encrypted/image-only documents, and excessive
+input or output. Successful text and provenance manifests are content-addressed
+derived files below `archive_root/derived/attachments/`. See
+`specs/attachment-content-v1.md` for exact defaults and outcomes.
+
 ## 9. Enrichment
 
 Jev is the example hosted backend and uses the official `typesafe-sdk`.
@@ -191,6 +213,8 @@ Results are cached by provider, exact model/build, redacted-input hash, and
 configuration hash. SQLite stores these values plus probabilities, request ID,
 duration, summarized results, and errors. Provider or validation failure leaves
 preservation intact and the remote message in the source label for retry.
+Phase 1 submits only the message body; attachment bytes and extracted text are
+not included in enrichment.
 
 ## 10. Obsidian notes
 
@@ -210,6 +234,12 @@ front matter rather than determining note paths. Front matter includes:
   and percent-encoded absolute `file://` links;
 - raw `.eml` hash, relative path, and link;
 - enrichment provider/model and processing timestamps.
+
+The generated body includes a visible link for every original attachment and,
+when attempted, bounded extracted text or its explicit status. Embedded text is
+limited to 50,000 characters per attachment and 100,000 per message by default;
+truncation links to the complete derived text. Extracted marker-like strings
+are escaped and personal text remains outside the managed region.
 
 Mailkeep owns the YAML front matter and the body between
 `<!-- mailkeep:generated:start -->` and `<!-- mailkeep:generated:end -->`.
@@ -241,6 +271,13 @@ and the stored managed-hash field itself.
   and atomically update their database-relative paths. Unsafe paths, failed
   archive verification, or destination collisions prevent execution. The
   operation is rerunnable and already organized notes are no-ops.
+- `mailkeep extract-attachments --dry-run [--archive-id ID]`: report local
+  extraction, cache-reuse, and skip actions without parsing, note regeneration,
+  database mutation, Gmail, or AI calls.
+- `mailkeep extract-attachments --execute [--archive-id ID] [--retry-failed]`:
+  extract or reuse preserved attachments and regenerate affected managed note
+  regions while preserving personal content. This explicit maintenance command
+  works even when automatic extraction is disabled.
 - `mailkeep prune --dry-run`: list eligible messages and every safety gate.
 - `mailkeep prune --execute`: additionally require `deletion_enabled: true`,
   reverify and refetch, then move unambiguous Gmail messages to Trash.

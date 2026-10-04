@@ -60,6 +60,26 @@ class EnrichmentConfig(StrictModel):
         return self
 
 
+class AttachmentExtractionConfig(StrictModel):
+    enabled: bool = True
+    max_pdf_bytes: int = Field(default=25 * 1024 * 1024, ge=1)
+    max_pdf_pages: int = Field(default=100, ge=1)
+    max_text_bytes: int = Field(default=2 * 1024 * 1024, ge=1)
+    max_output_bytes: int = Field(default=5 * 1024 * 1024, ge=1)
+    max_supported_attachments_per_message: int = Field(default=20, ge=1)
+    timeout_seconds_per_attachment: float = Field(default=60, gt=0, le=600)
+    timeout_seconds_per_message: float = Field(default=120, gt=0, le=3600)
+    note_chars_per_attachment: int = Field(default=50_000, ge=0)
+    note_chars_per_message: int = Field(default=100_000, ge=0)
+
+    def fingerprint(self) -> str:
+        payload = self.model_dump(mode="json", exclude={"enabled", "note_chars_per_attachment",
+                                                        "note_chars_per_message"})
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+
 class Config(StrictModel):
     schema_version: Literal[1] = 1
     account: AccountConfig
@@ -72,6 +92,7 @@ class Config(StrictModel):
     document_types: tuple[str, ...] = ()
     document_type_confidence: float = Field(default=0.7, ge=0, le=1)
     extraction_fields: tuple[str, ...] = ()
+    attachment_extraction: AttachmentExtractionConfig = AttachmentExtractionConfig()
     enrichment: EnrichmentConfig = EnrichmentConfig(
         provider="jev", api_key_env="MAILKEEP_JEV_API_KEY"
     )
@@ -85,6 +106,15 @@ class Config(StrictModel):
 
     def fingerprint(self) -> str:
         payload = self.model_dump(mode="json", exclude={"env_file"})
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    def enrichment_fingerprint(self) -> str:
+        """Retain the pre-attachment-feature cache key used by existing rows."""
+        payload = self.model_dump(
+            mode="json", exclude={"env_file", "attachment_extraction"}
+        )
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()

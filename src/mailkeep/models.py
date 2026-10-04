@@ -35,7 +35,27 @@ class Attachment:
     content_id: str | None
     data: bytes
     sha256: str
+    declared_charset: str | None = None
     decode_error: str | None = None
+
+
+@dataclass(frozen=True)
+class AttachmentExtraction:
+    attachment_id: int
+    ordinal: str
+    attachment_sha256: str
+    outcome: str
+    parser: str
+    parser_version: str
+    config_hash: str
+    warnings: tuple[str, ...] = ()
+    page_boundaries: tuple[dict[str, int], ...] = ()
+    artifact_relpath: str | None = None
+    manifest_relpath: str | None = None
+    output_sha256: str | None = None
+    output_size: int | None = None
+    cache_reused: bool = False
+    error: str | None = None
 
 
 @dataclass(frozen=True)

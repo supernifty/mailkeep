@@ -8,12 +8,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .attachments import extract_archive, plan_archive
 from .config import Config
 from .enrichment import enrich, input_hash, no_enrichment, redact
 from .locking import data_lock
 from .mime import parse_message
-from .models import EnrichmentResult, RemoteMessage
-from .notes import build_note, note_relative_path, write_note
+from .models import EnrichmentResult, RemoteMessage, StoredObject
+from .notes import build_note, note_relative_path, parse_managed, write_note
 from .provider import Provider
 from .state import State
 from .storage import identity, object_relative_path, reconcile_staging, store
@@ -58,7 +59,7 @@ def dry_run_archive(config: Config, provider: Provider, limit: int | None,
             "remote": asdict(remote), "archive_id": archive_id, "raw_sha256": digest,
             "object_path": str(config.paths.archive_root / object_relative_path(digest, archive_id)),
             "note_path": note_relative_path(parsed, archive_id).as_posix(),
-            "actions": ["preserve", "enrich", "write_note", "verify", "mark_processed"],
+            "actions": ["preserve", "extract_attachments", "enrich", "write_note", "verify", "mark_processed"],
         }
         if with_enrichment:
             item["enrichment"] = asdict(enrich(config, parsed.body_markdown))
@@ -88,10 +89,22 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
                     stored = store(config.paths.archive_root, raw, parsed)
                     relative = stored.object_dir.relative_to(config.paths.archive_root).as_posix()
                     state.record_preserved(remote_id, stored, parsed, relative, config_hash)
-                    local = verify_archive(state, config.paths.archive_root, config.notes_dir, stored.archive_id)
+                    local = verify_archive(
+                        state, config.paths.archive_root, config.notes_dir, stored.archive_id,
+                        include_derived=False, include_note=False,
+                    )
                     if not local.ok:
                         raise RuntimeError("; ".join(local.errors))
                     state.set_archive_state(stored.archive_id, "preservation", "preservation_verified")
+
+                if config.attachment_extraction.enabled:
+                    try:
+                        with state.attempt("attachment_extraction", config_hash,
+                                           archive_id=stored.archive_id, remote_id=remote_id):
+                            extract_archive(config, state, stored.archive_id)
+                    except Exception:
+                        # Derived extraction is deliberately independent of archive completion.
+                        pass
 
                 try:
                     with state.attempt("enrichment", config_hash, archive_id=stored.archive_id,
@@ -103,12 +116,16 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
                             submitted = (redact(parsed.body_markdown)[0]
                                          if config.enrichment.provider == "jev"
                                          else parsed.body_markdown)
+                            enrichment_hash = config.enrichment_fingerprint()
                             enrichment = state.load_cached_enrichment(
                                 stored.archive_id, config.enrichment.provider,
-                                config.enrichment.model, input_hash(submitted), config_hash,
+                                config.enrichment.model, input_hash(submitted), enrichment_hash,
                             )
                             if enrichment is None:
                                 enrichment = enrich(config, parsed.body_markdown)
+                                enrichment = EnrichmentResult(
+                                    **{**asdict(enrichment), "config_hash": enrichment_hash}
+                                )
                                 state.save_enrichment(stored.archive_id, enrichment)
                             else:
                                 state.set_archive_state(stored.archive_id, "enrichment", "complete")
@@ -124,6 +141,9 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
                         content, managed_hash = build_note(
                             parsed, stored, config.account.account_id, config.paths.archive_root,
                             enrichment, existing=existing,
+                            extractions=state.latest_extractions(stored.archive_id),
+                            note_chars_per_attachment=config.attachment_extraction.note_chars_per_attachment,
+                            note_chars_per_message=config.attachment_extraction.note_chars_per_message,
                         )
                         write_note(config.notes_dir, relative_path, content)
                         state.set_note(stored.archive_id, relative_path.as_posix(), managed_hash)
@@ -145,6 +165,74 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
                 results.append({"uid": remote.uid, "outcome": "failed",
                                 "error": f"{type(exc).__name__}: {exc}"})
     return results
+
+
+def _regenerate_note(config: Config, state: State, archive_id: str) -> str:
+    with state.connect() as conn:
+        row = conn.execute("SELECT * FROM archives WHERE archive_id=?", (archive_id,)).fetchone()
+    if row is None:
+        raise KeyError(f"unknown archive: {archive_id}")
+    relative_object = Path(row["object_relpath"])
+    archive_root = config.paths.archive_root.resolve()
+    if relative_object.is_absolute() or ".." in relative_object.parts:
+        raise ValueError(f"unsafe archive object path: {row['object_relpath']}")
+    object_dir = (archive_root / relative_object).resolve()
+    if not object_dir.is_relative_to(archive_root):
+        raise ValueError(f"archive object path escapes root: {row['object_relpath']}")
+    raw = (object_dir / "original.eml").read_bytes()
+    if hashlib.sha256(raw).hexdigest() != row["raw_sha256"]:
+        raise RuntimeError(f"raw SHA-256 mismatch for {archive_id}")
+    parsed = parse_message(raw)
+    stored = StoredObject(
+        archive_id=archive_id, raw_sha256=row["raw_sha256"], object_dir=object_dir,
+        eml_path=object_dir / "original.eml", metadata_path=object_dir / "metadata.json",
+        deduplicated=True,
+    )
+    enrichment = state.latest_enrichment(archive_id)
+    if enrichment is None:
+        if row["enrichment_state"] != "skipped":
+            raise RuntimeError(f"archive {archive_id} has no reusable enrichment result")
+        enrichment = no_enrichment(config, parsed.body_markdown)
+    relative = Path(row["note_relpath"] or note_relative_path(parsed, archive_id))
+    note_path = config.notes_dir / relative
+    existing = note_path.read_text(encoding="utf-8") if note_path.exists() else None
+    processed_at = None
+    if existing:
+        try:
+            processed_at = parse_managed(existing)[0].get("processed_at")
+        except ValueError:
+            processed_at = None
+    content, managed_hash = build_note(
+        parsed, stored, config.account.account_id, config.paths.archive_root, enrichment,
+        existing=existing, processed_at=processed_at,
+        extractions=state.latest_extractions(archive_id),
+        note_chars_per_attachment=config.attachment_extraction.note_chars_per_attachment,
+        note_chars_per_message=config.attachment_extraction.note_chars_per_message,
+    )
+    write_note(config.notes_dir, relative, content)
+    state.set_note(archive_id, relative.as_posix(), managed_hash)
+    return relative.as_posix()
+
+
+def extract_attachments(config: Config, execute: bool, archive_id: str | None = None,
+                        retry_failed: bool = False) -> list[dict[str, Any]]:
+    if not config.paths.database.exists():
+        raise RuntimeError("database does not exist")
+    state = State(config.paths.database, readonly=not execute)
+    if execute:
+        state.initialize()
+    plans = plan_archive(config, state, archive_id, retry_failed)
+    if not execute:
+        return plans
+    archive_ids = sorted({item["archive_id"] for item in plans})
+    output: list[dict[str, Any]] = []
+    with data_lock(config.paths.archive_root):
+        for current in archive_ids:
+            items = extract_archive(config, state, current, retry_failed, force=True)
+            note = _regenerate_note(config, state, current)
+            output.append({"archive_id": current, "attachments": items,
+                           "note": note, "outcome": "complete"})
+    return output
 
 
 def prune(config: Config, provider: Provider, execute: bool) -> list[dict[str, Any]]:

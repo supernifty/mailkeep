@@ -15,7 +15,8 @@ from . import __version__
 from .config import Config, load_config
 from .enrichment import list_jev_models
 from .provider import connect
-from .service import archive, dry_run_archive, organize_notes, prune, scan, verify
+from .service import (archive, dry_run_archive, extract_attachments,
+                      organize_notes, prune, scan, verify)
 from .state import State
 
 
@@ -39,6 +40,14 @@ def parser() -> argparse.ArgumentParser:
     organize_modes = organize_parser.add_mutually_exclusive_group(required=True)
     organize_modes.add_argument("--dry-run", action="store_true")
     organize_modes.add_argument("--execute", action="store_true")
+    extract_parser = commands.add_parser(
+        "extract-attachments", help="backfill or retry local attachment extraction"
+    )
+    extract_modes = extract_parser.add_mutually_exclusive_group(required=True)
+    extract_modes.add_argument("--dry-run", action="store_true")
+    extract_modes.add_argument("--execute", action="store_true")
+    extract_parser.add_argument("--archive-id")
+    extract_parser.add_argument("--retry-failed", action="store_true")
     prune_parser = commands.add_parser("prune", help="evaluate or execute retention")
     modes = prune_parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--dry-run", action="store_true")
@@ -161,6 +170,20 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except Exception as exc:
             print(f"organize-notes error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "extract-attachments":
+        if args.retry_failed and not args.execute:
+            print("usage error: --retry-failed requires --execute", file=sys.stderr)
+            return 2
+        try:
+            result = extract_attachments(
+                config, execute=args.execute, archive_id=args.archive_id,
+                retry_failed=args.retry_failed,
+            )
+            _print_json(result)
+            return 0
+        except Exception as exc:
+            print(f"extract-attachments error: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
 
     remote = None

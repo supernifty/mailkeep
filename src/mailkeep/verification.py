@@ -33,7 +33,8 @@ def _safe_join(root: Path, relative: str) -> Path:
 
 
 def verify_archive(state: State, archive_root: Path, notes_dir: Path,
-                   archive_id: str) -> VerificationReport:
+                   archive_id: str, *, include_derived: bool = True,
+                   include_note: bool = True) -> VerificationReport:
     report = VerificationReport(checked=1)
     with state.connect() as conn:
         archive = conn.execute("SELECT * FROM archives WHERE archive_id=?", (archive_id,)).fetchone()
@@ -91,7 +92,44 @@ def verify_archive(state: State, archive_root: Path, notes_dir: Path,
         if row["ordinal"] in derived and derived[row["ordinal"]].sha256 != row["sha256"]:
             report.errors.append(f"attachment differs from MIME derivation: {row['stored_name']}")
 
-    if archive["markdown_state"] == "complete":
+    if include_derived:
+        extractions = state.latest_extractions(archive_id)
+        attachments_by_ordinal = {row["ordinal"]: row for row in attachments}
+        for ordinal, extraction in extractions.items():
+            attachment = attachments_by_ordinal.get(ordinal)
+            if attachment is None or attachment["sha256"] != extraction.attachment_sha256:
+                report.errors.append(f"extraction attachment identity mismatch: {archive_id}/{ordinal}")
+                continue
+            if extraction.outcome != "success":
+                report.warnings.append(
+                    f"attachment extraction {extraction.outcome}: {archive_id}/{ordinal}"
+                )
+                continue
+            if not extraction.artifact_relpath or not extraction.manifest_relpath:
+                report.errors.append(f"successful extraction has no artifacts: {archive_id}/{ordinal}")
+                continue
+            try:
+                artifact = _safe_join(archive_root, extraction.artifact_relpath)
+                manifest_path = _safe_join(archive_root, extraction.manifest_relpath)
+                data = artifact.read_bytes()
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                data.decode("utf-8", "strict")
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                report.errors.append(f"invalid derived extraction for {archive_id}/{ordinal}: {exc}")
+                continue
+            digest = hashlib.sha256(data).hexdigest()
+            if digest != extraction.output_sha256 or len(data) != extraction.output_size:
+                report.errors.append(f"derived extraction hash/size mismatch: {archive_id}/{ordinal}")
+            expected_manifest = {
+                "attachment_sha256": extraction.attachment_sha256,
+                "parser": extraction.parser, "parser_version": extraction.parser_version,
+                "config_hash": extraction.config_hash, "outcome": "success",
+                "output_sha256": extraction.output_sha256, "output_size": extraction.output_size,
+            }
+            if any(manifest.get(key) != value for key, value in expected_manifest.items()):
+                report.errors.append(f"derived extraction manifest mismatch: {archive_id}/{ordinal}")
+
+    if include_note and archive["markdown_state"] == "complete":
         if not archive["note_relpath"]:
             report.errors.append(f"complete Markdown has no note path for {archive_id}")
         else:
