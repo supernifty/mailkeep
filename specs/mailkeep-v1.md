@@ -295,9 +295,25 @@ and generated body only, excluding personal text and the hash comment itself.
   into the local `~/Library/LaunchAgents/local.mailkeep.daily.plist`, invokes
   the periodic wrapper at 09:00 local time without `sudo`, and loads the generic
   `local.mailkeep.daily` label. It does not embed credentials or run at load,
-  and appends standard output and error below `mailkeep-data/logs/`. Tracked
-  files must not contain a username, home-directory path, or other
-  machine-specific identity.
+  and appends standard output and error below `mailkeep-data/logs/` by default.
+  `MAILKEEP_LOG_DIR` may select another absolute or user-relative log directory
+  when installing the local plist, so runtime data can live outside the
+  checkout. Tracked files must not contain a username, home-directory path, or
+  other machine-specific identity.
+- `scripts/mailkeep-daily-status.sh`: inspect the installed LaunchAgent without
+  triggering it. Report whether it is loaded or running, its run count and last
+  exit result since the current load, the last-run time inferred and explicitly
+  labelled from the newest scheduler-log modification time, the next configured
+  calendar run in local time, both log paths, and the exact manual `kickstart`
+  command. Also summarize the configured database's total archived and
+  provider-processed messages, completion states, current attachment-extraction
+  outcomes, latest archive time, and historical failed-attempt count. Database
+  access uses an immutable SQLite snapshot only when no non-empty WAL is
+  present, so the helper never creates sidecar files, migrates a database, or
+  reports a knowingly stale snapshot during an active write. Missing plists,
+  unloaded jobs, absent logs, never-run jobs, and unavailable archive statistics
+  are readable states rather than tracebacks. The helper makes no Gmail, AI,
+  prune, or archive mutation call.
 
 Calling `prune` with neither mode or both modes is a usage error. Commands return
 zero on full success, 1 on operational or verification failure, and 2 for
@@ -332,8 +348,12 @@ Automated tests must cover:
   refusal to prune after an archive failure, and successful no-op handling for
   messages that are not yet retention-mature.
 - valid daily LaunchAgent template structure, correctly rendered absolute
-  executable and log paths, no embedded environment secrets, and no username
-  or machine-specific home path in tracked scheduling files.
+  executable and default or overridden log paths, no embedded environment
+  secrets, and no username or machine-specific home path in tracked scheduling
+  files.
+- daily status reporting for loaded, unloaded, never-run, successful, and failed
+  jobs; inferred log timestamps and next-run calculation; and read-only
+  archive statistics that do not trigger the periodic wrapper or mutate SQLite.
 
 Tests and smoke artifacts use `tmp/codex/` inside the checkout and are removed
 after verification. Acceptance requires the automated suite and local CLI smoke

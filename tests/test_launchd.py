@@ -26,3 +26,4 @@ def test_daily_launch_agent_template_is_safe_and_anonymous():
     )
     assert re.search(r"/Users/[^/]+", tracked) is None
     assert "-replace ProgramArguments.0" not in tracked
+    assert 'log_dir="${MAILKEEP_LOG_DIR:-$repo_dir/mailkeep-data/logs}"' in tracked

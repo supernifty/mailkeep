@@ -1,6 +1,7 @@
 .env
 config.yaml
 mailkeep-data/
+.DS_Store
 .venv/
 __pycache__/
 *.py[cod]
@@ -10,3 +11,4 @@ __pycache__/
 .coverage
 dist/
 tmp/codex/
+/tests/tmp/

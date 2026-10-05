@@ -26,6 +26,17 @@ dev = ["pytest>=8.3,<9", "pytest-cov>=6,<7"]
 [project.scripts]
 mailkeep = "mailkeep.cli:main"
 
+[tool.hatch.build]
+exclude = [
+  "/.DS_Store",
+  "/.env",
+  "/AGENTS.md",
+  "/config.yaml",
+  "/mailkeep-data",
+  "/tests/tmp",
+  "/tmp",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mailkeep"]
 

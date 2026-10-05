@@ -92,11 +92,32 @@ then loads the generic `local.mailkeep.daily` label:
 ./scripts/install-launchd.sh
 ```
 
+The installer writes logs below `mailkeep-data/logs/` in the checkout by
+default. Set `MAILKEEP_LOG_DIR` while installing to keep scheduler logs with a
+relocated data directory, for example:
+
+```sh
+MAILKEEP_LOG_DIR="$HOME/Documents/mailkeep-data/logs" ./scripts/install-launchd.sh
+```
+
 It does not run immediately when loaded. Inspect its registration with
 `launchctl print "gui/$(id -u)/local.mailkeep.daily"`. Use
 `launchctl kickstart -k "gui/$(id -u)/local.mailkeep.daily"` only when
 a live archive-and-prune run is intended. Secrets continue to come from the
 configured `env_file`; none are stored in the LaunchAgent.
+
+For a concise read-only view of the service state, last log activity and exit
+result, next scheduled run, archive and processing counts, attachment outcomes,
+log paths, and manual trigger command, run:
+
+```sh
+./scripts/mailkeep-daily-status.sh
+```
+
+Launchd does not expose a durable last-run timestamp, so the helper explicitly
+labels that time as inferred from the newest scheduler-log modification time.
+Archive statistics use a non-mutating SQLite snapshot. They are reported as
+unavailable while a non-empty write-ahead log indicates possible active writes.
 
 ## First live validation
 
