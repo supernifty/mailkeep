@@ -295,11 +295,12 @@ and generated body only, excluding personal text and the hash comment itself.
   into the local `~/Library/LaunchAgents/local.mailkeep.daily.plist`, invokes
   the periodic wrapper at 09:00 local time without `sudo`, and loads the generic
   `local.mailkeep.daily` label. It does not embed credentials or run at load,
-  and appends standard output and error below `mailkeep-data/logs/` by default.
-  `MAILKEEP_LOG_DIR` may select another absolute or user-relative log directory
-  when installing the local plist, so runtime data can live outside the
-  checkout. Tracked files must not contain a username, home-directory path, or
-  other machine-specific identity.
+  and appends standard output and error below `~/Library/Logs/Mailkeep/` by
+  default. Scheduler logs remain outside protected user content directories so
+  launchd can open them before starting the wrapper. `MAILKEEP_LOG_DIR` may
+  select another absolute or user-relative log directory when installing the
+  local plist. Tracked files must not contain a username, home-directory path,
+  or other machine-specific identity.
 - `scripts/mailkeep-daily-status.sh`: inspect the installed LaunchAgent without
   triggering it. Report whether it is loaded or running, its run count and last
   exit result since the current load, the last-run time inferred and explicitly
@@ -348,9 +349,9 @@ Automated tests must cover:
   refusal to prune after an archive failure, and successful no-op handling for
   messages that are not yet retention-mature.
 - valid daily LaunchAgent template structure, correctly rendered absolute
-  executable and default or overridden log paths, no embedded environment
-  secrets, and no username or machine-specific home path in tracked scheduling
-  files.
+  executable and `~/Library/Logs/Mailkeep` default or overridden log paths, no
+  embedded environment secrets, and no username or machine-specific home path
+  in tracked scheduling files.
 - daily status reporting for loaded, unloaded, never-run, successful, and failed
   jobs; inferred log timestamps and next-run calculation; and read-only
   archive statistics that do not trigger the periodic wrapper or mutate SQLite.

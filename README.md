@@ -92,12 +92,13 @@ then loads the generic `local.mailkeep.daily` label:
 ./scripts/install-launchd.sh
 ```
 
-The installer writes logs below `mailkeep-data/logs/` in the checkout by
-default. Set `MAILKEEP_LOG_DIR` while installing to keep scheduler logs with a
-relocated data directory, for example:
+The installer writes logs below `~/Library/Logs/Mailkeep/` by default. Keeping
+launchd's output files outside protected content directories avoids a scheduler
+startup failure before Mailkeep can emit its own diagnostics. Set
+`MAILKEEP_LOG_DIR` while installing to use another location, for example:
 
 ```sh
-MAILKEEP_LOG_DIR="$HOME/Documents/mailkeep-data/logs" ./scripts/install-launchd.sh
+MAILKEEP_LOG_DIR="$HOME/Library/Logs/another-mailkeep-instance" ./scripts/install-launchd.sh
 ```
 
 It does not run immediately when loaded. Inspect its registration with
