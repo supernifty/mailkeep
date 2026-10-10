@@ -35,3 +35,15 @@ def test_regenerate_notes_cli_modes_and_scope():
     assert args.execute and args.archive_id == "archive-1"
     with pytest.raises(SystemExit):
         parser().parse_args(["regenerate-notes"])
+
+
+def test_setup_dashboard_cli_requires_exactly_one_mode():
+    dry_run = parser().parse_args(["setup-dashboard", "--dry-run"])
+    execute = parser().parse_args(["setup-dashboard", "--execute"])
+
+    assert dry_run.dry_run and not dry_run.execute
+    assert execute.execute and not execute.dry_run
+    with pytest.raises(SystemExit):
+        parser().parse_args(["setup-dashboard"])
+    with pytest.raises(SystemExit):
+        parser().parse_args(["setup-dashboard", "--dry-run", "--execute"])

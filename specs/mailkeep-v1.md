@@ -246,6 +246,13 @@ remain and their contents are preserved on regeneration. The managed hash is a
 hidden HTML comment, not an Obsidian property, and covers canonical front matter
 and generated body only, excluding personal text and the hash comment itself.
 
+An optional, local-only Obsidian dashboard can be provisioned explicitly as
+specified in `specs/obsidian-dashboard-v1.md`. It is a user-owned navigation
+surface over reading-note properties, updates dynamically through Obsidian
+Bases, and does not participate in archive, verification, provider, or
+retention state. Its tables use an icon-only note link and sender-name formula,
+and keep document type out of visible columns to remain compact.
+
 ## 11. Commands
 
 - `mailkeep doctor`: validate config, paths, secret presence, SQLite, provider
@@ -279,6 +286,10 @@ and generated body only, excluding personal text and the hash comment itself.
 - `mailkeep regenerate-notes --dry-run|--execute [--archive-id ID]`: locally
   plan or regenerate all managed reading notes from preserved data and cached
   results, preserving personal content and making no provider or AI call.
+- `mailkeep setup-dashboard --dry-run|--execute`: locally create missing
+  `Index.md` and `Mailkeep.base` dashboard files below the configured Obsidian
+  folder. Existing paths are preserved and never read or overwritten. The
+  command requires no database, provider, or AI access.
 - `mailkeep prune --dry-run`: list eligible messages and every safety gate.
 - `mailkeep prune --execute`: additionally require `deletion_enabled: true`,
   reverify and refetch, then move unambiguous Gmail messages to Trash.
@@ -355,6 +366,9 @@ Automated tests must cover:
 - daily status reporting for loaded, unloaded, never-run, successful, and failed
   jobs; inferred log timestamps and next-run calculation; and read-only
   archive statistics that do not trigger the periodic wrapper or mutate SQLite.
+- dashboard dry-run immutability, safe no-overwrite creation, rollback,
+  rerunnable and partial-existing behavior, valid four-view Base structure,
+  and dynamic safe extraction-field columns without database or network access.
 
 Tests and smoke artifacts use `tmp/codex/` inside the checkout and are removed
 after verification. Acceptance requires the automated suite and local CLI smoke

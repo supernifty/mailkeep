@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from . import __version__
 from .config import Config, load_config
+from .dashboard import setup_dashboard
 from .enrichment import list_jev_models
 from .provider import connect
 from .service import (archive, dry_run_archive, extract_attachments,
@@ -55,6 +56,12 @@ def parser() -> argparse.ArgumentParser:
     regenerate_modes.add_argument("--dry-run", action="store_true")
     regenerate_modes.add_argument("--execute", action="store_true")
     regenerate_parser.add_argument("--archive-id")
+    dashboard_parser = commands.add_parser(
+        "setup-dashboard", help="create the optional Obsidian dashboard"
+    )
+    dashboard_modes = dashboard_parser.add_mutually_exclusive_group(required=True)
+    dashboard_modes.add_argument("--dry-run", action="store_true")
+    dashboard_modes.add_argument("--execute", action="store_true")
     prune_parser = commands.add_parser("prune", help="evaluate or execute retention")
     modes = prune_parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--dry-run", action="store_true")
@@ -201,6 +208,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except Exception as exc:
             print(f"regenerate-notes error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "setup-dashboard":
+        try:
+            result = setup_dashboard(config, execute=args.execute)
+            _print_json(result)
+            return 0
+        except Exception as exc:
+            print(f"setup-dashboard error: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
 
     remote = None

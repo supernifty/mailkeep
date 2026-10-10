@@ -48,6 +48,7 @@ uv run mailkeep --config config.yaml status --json
 uv run mailkeep --config config.yaml extract-attachments --dry-run
 uv run mailkeep --config config.yaml regenerate-notes --dry-run
 uv run mailkeep --config config.yaml organize-notes --dry-run
+uv run mailkeep --config config.yaml setup-dashboard --dry-run
 uv run mailkeep --config config.yaml prune --dry-run
 ```
 
@@ -73,6 +74,22 @@ details, and other preservation provenance remain in SQLite and archive
 manifests rather than cluttering Properties. `regenerate-notes --execute`
 upgrades existing managed notes locally while preserving personal regions and
 without making Gmail or AI calls.
+
+Create an optional live Obsidian dashboard by reviewing and then executing:
+
+```sh
+uv run mailkeep --config config.yaml setup-dashboard --dry-run
+uv run mailkeep --config config.yaml setup-dashboard --execute
+```
+
+This creates missing `Index.md` and `Mailkeep.base` files in the configured
+Mailkeep folder. Obsidian Bases discovers new reading notes automatically, so
+archive runs do not rewrite the dashboard. Enable the Bases core plugin if the
+embedded view does not render. Dashboard files are user-owned after creation:
+rerunning setup preserves existing files byte-for-byte. Use the Base for
+searching and filtering, but do not edit Mailkeep-managed property cells;
+property edits can fail `mailkeep verify` and may be replaced by note
+regeneration.
 
 For a periodic scheduler, run `scripts/mailkeep-periodic.sh`. It uses the
 checkout's `.venv/bin/mailkeep` and `config.yaml`, archives first, and runs
