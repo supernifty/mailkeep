@@ -63,7 +63,8 @@ does not change preservation, provider movement, or deletion gates.
 
 The `mailkeep` package has modules for configuration, IMAP/provider access,
 MIME parsing, atomic storage, SQLite state, enrichment, Markdown rendering,
-attachment extraction, verification, retention, locking, and CLI orchestration.
+attachment extraction, verification, retention, activity logging, locking, and
+CLI orchestration.
 Cross-module values use small dataclasses rather than provider response objects.
 
 Mutating commands acquire an exclusive lock beneath the data root. A later
@@ -253,6 +254,14 @@ Bases, and does not participate in archive, verification, provider, or
 retention state. Its tables use an icon-only note link and sender-name formula,
 and keep document type out of visible columns to remain compact.
 
+Non-dry-run `archive` and `prune --execute` runs also maintain
+`<obsidian_folder>/Activity.md` as specified in `specs/activity-log-v1.md`. It
+is an append-only, year-grouped Markdown log with at most one line per run that
+did something: archived, deduplicated, and failed counts plus the archive total,
+or Trash moves, newly absent messages, and safety-gate blocks. Idle runs and
+dry runs write nothing, existing content is never rewritten, and a failed log
+write never changes the command outcome.
+
 ## 11. Commands
 
 - `mailkeep doctor`: validate config, paths, secret presence, SQLite, provider
@@ -260,7 +269,8 @@ and keep document type out of visible columns to remain compact.
   enrichment—including availability of the selected hosted model—without
   changing mail.
 - `mailkeep scan`: list source candidates and known state, read-only.
-- `mailkeep archive [--limit N]`: discover and run or resume the pipeline.
+- `mailkeep archive [--limit N]`: discover and run or resume the pipeline, then
+  append at most one activity-log entry.
 - `mailkeep archive --dry-run [--with-enrichment]`: PEEK-fetch and report exact
   hashes, IDs, paths, and planned actions with no mutations. AI is called only
   with `--with-enrichment`.
@@ -292,7 +302,8 @@ and keep document type out of visible columns to remain compact.
   command requires no database, provider, or AI access.
 - `mailkeep prune --dry-run`: list eligible messages and every safety gate.
 - `mailkeep prune --execute`: additionally require `deletion_enabled: true`,
-  reverify and refetch, then move unambiguous Gmail messages to Trash.
+  reverify and refetch, then move unambiguous Gmail messages to Trash and append
+  at most one activity-log entry.
 - `scripts/mailkeep-periodic.sh`: run `archive` and, only after it exits
   successfully, run `prune --execute`. The wrapper resolves its default
   `config.yaml` and `.venv/bin/mailkeep` relative to the checkout so it does not
@@ -359,6 +370,9 @@ Automated tests must cover:
 - periodic wrapper ordering, checkout-relative defaults, supported overrides,
   refusal to prune after an archive failure, and successful no-op handling for
   messages that are not yet retention-mature.
+- activity-log formatting, year grouping, append-only preservation of existing
+  content, idle and dry-run silence, archive and prune count lines, and
+  isolation of log-write failures from command outcomes.
 - valid daily LaunchAgent template structure, correctly rendered absolute
   executable and `~/Library/Logs/Mailkeep` default or overridden log paths, no
   embedded environment secrets, and no username or machine-specific home path

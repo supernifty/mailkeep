@@ -91,6 +91,14 @@ searching and filtering, but do not edit Mailkeep-managed property cells;
 property edits can fail `mailkeep verify` and may be replaced by note
 regeneration.
 
+Non-dry-run `archive` and `prune --execute` runs append a one-line entry to
+`Mailkeep/Activity.md` in the vault, grouped by year. Archive entries report
+newly archived messages, byte deduplication, failures, and the running total;
+prune entries report messages moved to Gmail Trash, newly recorded absent, or
+blocked by safety gates. Idle runs and dry runs write nothing, and existing
+content is never rewritten. The behavior is specified in
+[`specs/activity-log-v1.md`](specs/activity-log-v1.md).
+
 For a periodic scheduler, run `scripts/mailkeep-periodic.sh`. It uses the
 checkout's `.venv/bin/mailkeep` and `config.yaml`, archives first, and runs
 `prune --execute` only if archiving succeeds. Override those paths with

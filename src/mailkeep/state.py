@@ -409,6 +409,10 @@ class State:
             duration_ms=row["duration_ms"], raw=payload.get("raw", {}),
         )
 
+    def archive_count(self) -> int:
+        with self.connect() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM archives").fetchone()[0])
+
     def complete_verified(self, archive_id: str) -> bool:
         with self.connect() as conn:
             row = conn.execute(

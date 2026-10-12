@@ -9,6 +9,7 @@ from pathlib import Path
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
+from mailkeep.activity import ACTIVITY_NAME
 from mailkeep.attachments import _run_worker
 from mailkeep.config import AttachmentExtractionConfig
 from mailkeep.notes import PERSONAL_END, PERSONAL_START
@@ -262,7 +263,8 @@ def test_encrypted_blank_malformed_oversized_and_unsupported_are_explicit(config
         )}
     assert {"encrypted", "blank", "malformed", "oversized", "unsupported"} <= outcomes
     assert all("## Attachments" in path.read_text(encoding="utf-8")
-               for path in config.notes_dir.rglob("*.md"))
+               for path in config.notes_dir.rglob("*.md")
+               if path.name != ACTIVITY_NAME)
 
 
 def test_note_and_output_limits_are_bounded(config_factory):

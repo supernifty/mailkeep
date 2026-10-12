@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .activity import append_activity, archive_entry, prune_entry
 from .attachments import extract_archive, plan_archive
 from .config import Config
 from .enrichment import enrich, input_hash, no_enrichment, redact
@@ -27,6 +29,15 @@ def _setup(config: Config) -> State:
     state.ensure_account(config.account.account_id, config.account.provider,
                          config.account.username)
     return state
+
+
+def _log_activity(config: Config, entry: str | None) -> None:
+    if entry is None:
+        return
+    try:
+        append_activity(config, entry)
+    except Exception as exc:
+        print(f"activity log warning: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def scan(config: Config, provider: Provider, limit: int | None = None) -> list[dict[str, Any]]:
@@ -165,6 +176,7 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
             except Exception as exc:
                 results.append({"uid": remote.uid, "outcome": "failed",
                                 "error": f"{type(exc).__name__}: {exc}"})
+        _log_activity(config, archive_entry(results, state.archive_count()))
     return results
 
 
@@ -331,6 +343,8 @@ def prune(config: Config, provider: Provider, execute: bool) -> list[dict[str, A
                 state.mark_absent(row["id"])
                 output.append({"archive_id": row["archive_id"], "gmail_msgid": row["gmail_msgid"],
                                "state": "absent", "action": "recorded_deleted"})
+        if execute:
+            _log_activity(config, prune_entry(output))
     return output
 
 
