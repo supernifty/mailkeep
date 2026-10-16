@@ -83,9 +83,8 @@ configuration uses `provider: none`, which needs no extra service or key:
 
 - `none` — no AI calls (default).
 - `ollama` — a local model served by Ollama, with `privacy: local`.
-- `jev` — the hosted Typesafe backend. Install the optional dependency with
-  `uv sync --extra jev` and set `MAILKEEP_JEV_API_KEY`. Hosted submissions use
-  redacted body text only.
+- `jev` — the hosted Typesafe backend; set `MAILKEEP_JEV_API_KEY`. Hosted
+  submissions use redacted body text only.
 
 ## Commands
 

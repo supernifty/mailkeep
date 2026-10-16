@@ -44,7 +44,7 @@ attachment_extraction:
 enrichment:
   # "none" keeps everything local and needs no extra service or key.
   # "ollama" uses a local model. "jev" uses the hosted Typesafe backend and
-  # needs the optional dependency and MAILKEEP_JEV_API_KEY.
+  # needs MAILKEEP_JEV_API_KEY.
   provider: none
   timeout_seconds: 30
   # provider: ollama

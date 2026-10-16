@@ -272,16 +272,13 @@ dependencies = [
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "pyyaml" },
+    { name = "typesafe-sdk" },
 ]
 
 [package.optional-dependencies]
 dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
-    { name = "typesafe-sdk" },
-]
-jev = [
-    { name = "typesafe-sdk" },
 ]
 
 [package.metadata]
@@ -295,10 +292,9 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3,<9" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6,<7" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
-    { name = "typesafe-sdk", marker = "extra == 'dev'", specifier = ">=0.1" },
-    { name = "typesafe-sdk", marker = "extra == 'jev'", specifier = ">=0.1" },
+    { name = "typesafe-sdk", specifier = ">=0.1" },
 ]
-provides-extras = ["jev", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "markdownify"

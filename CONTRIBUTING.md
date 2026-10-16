@@ -19,9 +19,6 @@ mkdir -p tmp
 TMPDIR="$PWD/tmp" uv run pytest
 ```
 
-The optional `jev` extra (`uv sync --extra jev`) is only needed for the hosted
-Typesafe enrichment backend.
-
 ## Guidelines
 
 - Keep changes focused and consistent with the existing structure and style.

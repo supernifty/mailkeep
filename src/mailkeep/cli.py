@@ -95,8 +95,7 @@ def doctor(config: Config) -> tuple[bool, list[dict[str, Any]]]:
             sdk = True
         except ImportError:
             sdk = False
-        add("jev_sdk", sdk, "official typesafe-sdk import" if sdk
-            else "install with 'uv sync --extra jev'")
+        add("jev_sdk", sdk, "official typesafe-sdk import")
         add("jev_secret", config.enrichment_key() is not None,
             config.enrichment.api_key_env or "not configured")
         if sdk and config.enrichment_key() is not None:

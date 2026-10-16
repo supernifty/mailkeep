@@ -93,8 +93,7 @@ the configuration file. An optional env file is loaded only when explicitly
 named and must be git-ignored by the operator. Existing process environment
 values win. Gmail and Jev secrets must be present for live commands that need
 them. Example configuration and `.env.example` contain placeholders only and
-select `provider: none`, so a first run needs no enrichment service. The hosted
-Jev backend additionally requires the optional `jev` dependency extra.
+select `provider: none`, so a first run needs no enrichment service.
 
 The default hosted privacy mode is `redacted`. Before hosted submission,
 recognizable email addresses, telephone numbers, sensitive URL query values,
@@ -200,9 +199,7 @@ derived files below `archive_root/derived/attachments/`. See
 
 ## 9. Enrichment
 
-Jev is the example hosted backend and uses the official `typesafe-sdk`, which
-is provided by the optional `jev` dependency extra. A missing extra fails with
-an actionable install hint.
+Jev is the example hosted backend and uses the official `typesafe-sdk`.
 Multi-label classification asks one `Noul` question per category and applies
 the configured threshold. Document type is a `Choice` with an `other` option
 and a confidence floor. Extraction first builds deterministic candidates from
@@ -362,9 +359,8 @@ Automated tests must cover:
   reconnect, and manually moved Gmail messages;
 - PEEK semantics, no accidental `\\Seen`, no early label changes, and stable
   Gmail-ID lookup;
-- redaction, thresholds, schema/evidence rejection, outages, retry/cache,
-  configuration-triggered re-enrichment for mocked Jev and Ollama, and an
-  actionable error when the optional Jev dependency is absent;
+- redaction, thresholds, schema/evidence rejection, outages, retry/cache, and
+  configuration-triggered re-enrichment for mocked Jev and Ollama;
 - deterministic note snapshots, encoded links, filename collisions, CID and
   remote-image handling, HTML/CSS/script suppression, and personal-note
   preservation; dated and undated note hierarchy; byte-preserving organization
