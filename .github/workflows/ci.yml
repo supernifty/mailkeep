@@ -20,4 +20,4 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: "3.12"
-      - run: uv run --extra dev pytest
+      - run: mkdir -p tmp && TMPDIR="$PWD/tmp" uv run --extra dev pytest

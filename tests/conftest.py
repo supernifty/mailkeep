@@ -6,6 +6,10 @@ import pytest
 
 from mailkeep.config import Config
 
+# The configured `--basetemp=tmp/pytest` is created without parent
+# directories, so a fresh checkout would fail before the first test runs.
+Path("tmp").mkdir(exist_ok=True)
+
 
 @pytest.fixture
 def config_factory(tmp_path: Path):
