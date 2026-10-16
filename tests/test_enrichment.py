@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import httpx
+import pytest
 
 from mailkeep.enrichment import enrich_jev, enrich_ollama, list_jev_models, redact
 
@@ -76,6 +78,19 @@ def test_jev_uses_noul_thresholds_and_only_local_extraction_candidates(config_fa
     assert result.categories == {"receipt": 0.8}
     assert result.document_type == "receipt"
     assert result.entities == ({"field": "amount", "value": "$12.00", "evidence": "$12.00"},)
+
+
+def test_jev_missing_optional_dependency_reports_actionable_error(config_factory, monkeypatch):
+    config = config_factory(enrichment="ollama").model_copy(update={
+        "enrichment": config_factory(enrichment="ollama").enrichment.model_copy(
+            update={"provider": "jev", "privacy": "redacted", "api_key_env": "JEV_KEY"})
+    })
+    monkeypatch.setitem(sys.modules, "typesafe_sdk", None)
+
+    with pytest.raises(RuntimeError, match="jev' extra"):
+        enrich_jev(config, "body")
+    with pytest.raises(RuntimeError, match="jev' extra"):
+        list_jev_models(config)
 
 
 def test_jev_model_listing_uses_configured_client(config_factory):

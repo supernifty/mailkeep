@@ -82,8 +82,9 @@ Configuration is YAML and rejects unknown or invalid values. It defines:
 - retention days, per-run message and byte limits, and `deletion_enabled`;
 - categories with thresholds, document types and confidence floor, and
   extraction field definitions;
-- enrichment provider (`jev`, `ollama`, or `none`), provider endpoint, exact
-  model/build, API-key environment-variable name, privacy mode, and timeout.
+- enrichment provider (`jev`, `ollama`, or `none`, default `none`), provider
+  endpoint, exact model/build, API-key environment-variable name, privacy mode,
+  and timeout.
 - attachment extraction enablement and independent PDF, page, text, output,
   attachment-count, elapsed-time, and note-embedding limits.
 
@@ -91,7 +92,9 @@ Paths expand `~` and environment variables. Relative paths resolve relative to
 the configuration file. An optional env file is loaded only when explicitly
 named and must be git-ignored by the operator. Existing process environment
 values win. Gmail and Jev secrets must be present for live commands that need
-them. Example configuration and `.env.example` contain placeholders only.
+them. Example configuration and `.env.example` contain placeholders only and
+select `provider: none`, so a first run needs no enrichment service. The hosted
+Jev backend additionally requires the optional `jev` dependency extra.
 
 The default hosted privacy mode is `redacted`. Before hosted submission,
 recognizable email addresses, telephone numbers, sensitive URL query values,
@@ -197,7 +200,9 @@ derived files below `archive_root/derived/attachments/`. See
 
 ## 9. Enrichment
 
-Jev is the example hosted backend and uses the official `typesafe-sdk`.
+Jev is the example hosted backend and uses the official `typesafe-sdk`, which
+is provided by the optional `jev` dependency extra. A missing extra fails with
+an actionable install hint.
 Multi-label classification asks one `Noul` question per category and applies
 the configured threshold. Document type is a `Choice` with an `other` option
 and a confidence floor. Extraction first builds deterministic candidates from
@@ -357,8 +362,9 @@ Automated tests must cover:
   reconnect, and manually moved Gmail messages;
 - PEEK semantics, no accidental `\\Seen`, no early label changes, and stable
   Gmail-ID lookup;
-- redaction, thresholds, schema/evidence rejection, outages, retry/cache, and
-  configuration-triggered re-enrichment for mocked Jev and Ollama;
+- redaction, thresholds, schema/evidence rejection, outages, retry/cache,
+  configuration-triggered re-enrichment for mocked Jev and Ollama, and an
+  actionable error when the optional Jev dependency is absent;
 - deterministic note snapshots, encoded links, filename collisions, CID and
   remote-image handling, HTML/CSS/script suppression, and personal-note
   preservation; dated and undated note hierarchy; byte-preserving organization
@@ -384,7 +390,7 @@ Automated tests must cover:
   rerunnable and partial-existing behavior, valid four-view Base structure,
   and dynamic safe extraction-field columns without database or network access.
 
-Tests and smoke artifacts use `tmp/codex/` inside the checkout and are removed
+Tests and smoke artifacts use `tmp/` inside the checkout and are removed
 after verification. Acceptance requires the automated suite and local CLI smoke
 tests to pass. Live Gmail and Jev behavior remains explicitly unverified until
 the operator supplies configuration and a disposable test message. The first

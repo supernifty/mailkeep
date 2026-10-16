@@ -8,7 +8,20 @@ version = "0.1.0"
 description = "Local-first email preservation and Obsidian indexing"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Peter Georgeson" }]
+keywords = ["email", "archive", "preservation", "imap", "gmail", "obsidian"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications :: Email",
+]
 dependencies = [
   "beautifulsoup4>=4.12,<5",
   "bleach>=6.2,<7",
@@ -17,11 +30,16 @@ dependencies = [
   "pypdf>=6.19,<7",
   "pydantic>=2.9,<3",
   "PyYAML>=6.0,<7",
-  "typesafe-sdk>=0.1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3,<9", "pytest-cov>=6,<7"]
+jev = ["typesafe-sdk>=0.1"]
+dev = ["pytest>=8.3,<9", "pytest-cov>=6,<7", "typesafe-sdk>=0.1"]
+
+[project.urls]
+Homepage = "https://github.com/supernifty/mailkeep"
+Repository = "https://github.com/supernifty/mailkeep"
+Issues = "https://github.com/supernifty/mailkeep/issues"
 
 [project.scripts]
 mailkeep = "mailkeep.cli:main"
@@ -33,7 +51,6 @@ exclude = [
   "/AGENTS.md",
   "/config.yaml",
   "/mailkeep-data",
-  "/tests/tmp",
   "/tmp",
 ]
 
@@ -41,9 +58,9 @@ exclude = [
 packages = ["src/mailkeep"]
 
 [tool.pytest.ini_options]
-addopts = "-q --basetemp=tmp/codex/pytest"
+addopts = "-q --basetemp=tmp/pytest"
 testpaths = ["tests"]
-cache_dir = "tmp/codex/pytest-cache"
+cache_dir = "tmp/pytest-cache"
 
 [tool.coverage.run]
 source = ["mailkeep"]

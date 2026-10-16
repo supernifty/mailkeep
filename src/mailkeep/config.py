@@ -44,7 +44,7 @@ class LimitsConfig(StrictModel):
 
 
 class EnrichmentConfig(StrictModel):
-    provider: Literal["jev", "ollama", "none"] = "jev"
+    provider: Literal["jev", "ollama", "none"] = "none"
     model: str = "jev-latest"
     endpoint: str | None = None
     api_key_env: str | None = None
@@ -93,9 +93,7 @@ class Config(StrictModel):
     document_type_confidence: float = Field(default=0.7, ge=0, le=1)
     extraction_fields: tuple[str, ...] = ()
     attachment_extraction: AttachmentExtractionConfig = AttachmentExtractionConfig()
-    enrichment: EnrichmentConfig = EnrichmentConfig(
-        provider="jev", api_key_env="MAILKEEP_JEV_API_KEY"
-    )
+    enrichment: EnrichmentConfig = EnrichmentConfig()
 
     @field_validator("categories")
     @classmethod

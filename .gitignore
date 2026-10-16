@@ -10,5 +10,7 @@ __pycache__/
 *.sqlite3-shm
 .coverage
 dist/
-tmp/codex/
-/tests/tmp/
+tmp/
+.uv-cache/
+.pytest_cache/
+/AGENTS.md

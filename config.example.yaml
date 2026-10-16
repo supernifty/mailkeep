@@ -10,7 +10,7 @@ account:
   processed_label: Mailkeep-Processed
 paths:
   archive_root: ./mailkeep-data/archive
-  obsidian_vault: ~/Documents/Obsidian Vault
+  obsidian_vault: ~/ObsidianVault
   obsidian_folder: Mailkeep
   database: ./mailkeep-data/mailkeep.sqlite3
 # env_file: ./.env
@@ -42,9 +42,17 @@ attachment_extraction:
   note_chars_per_attachment: 50000
   note_chars_per_message: 100000
 enrichment:
-  provider: jev
-  model: jev-latest
-  endpoint: https://api.typesafe.ai
-  api_key_env: MAILKEEP_JEV_API_KEY
-  privacy: redacted
+  # "none" keeps everything local and needs no extra service or key.
+  # "ollama" uses a local model. "jev" uses the hosted Typesafe backend and
+  # needs the optional dependency and MAILKEEP_JEV_API_KEY.
+  provider: none
   timeout_seconds: 30
+  # provider: ollama
+  # model: llama3.2
+  # endpoint: http://localhost:11434
+  # privacy: local
+  # provider: jev
+  # model: jev-latest
+  # endpoint: https://api.typesafe.ai
+  # api_key_env: MAILKEEP_JEV_API_KEY
+  # privacy: redacted

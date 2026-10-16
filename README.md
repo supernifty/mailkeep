@@ -6,7 +6,8 @@ content-addressed archive, creates a managed reading note, and moves a Gmail
 message out of the source label only after every required local stage verifies.
 
 The authoritative behavior and safety model are in
-[`specs/mailkeep-v1.md`](specs/mailkeep-v1.md).
+[`specs/mailkeep-v1.md`](specs/mailkeep-v1.md). Mailkeep is MIT licensed; see
+[`LICENSE`](LICENSE).
 
 ## Safety boundary
 
@@ -24,17 +25,67 @@ still reveal sensitive meaning, and attachment bytes or extracted attachment
 text are never submitted. Local attachment extraction is also not a deletion
 gate; unsupported or failed extraction remains visible and retryable.
 
-## Install
+## Requirements
 
-Python 3.12 or newer and [uv](https://docs.astral.sh/uv/) are required.
+- Python 3.12 or newer and [uv](https://docs.astral.sh/uv/).
+- macOS is fully supported, including the LaunchAgent scheduling helpers.
+- Linux runs the core commands and is exercised in CI; the launchd helpers are
+  macOS-only.
+- Windows is not supported.
+
+## Quick start
 
 ```sh
-uv sync --extra dev
+git clone https://github.com/supernifty/mailkeep
+cd mailkeep
+uv sync
 cp config.example.yaml config.yaml
 ```
 
-Set the named secret environment variables directly, or configure an explicit
-git-ignored `env_file`. Never put passwords or API keys in YAML.
+Edit `config.yaml` for your account and paths. Apply the configured source label
+(for example `Mailkeep`) to a test message in Gmail first; Mailkeep only sees
+messages inside that label. Then supply the Gmail app password through the
+environment or an explicit git-ignored `env_file`:
+
+```sh
+export MAILKEEP_GMAIL_PASSWORD="your-app-password"
+```
+
+Never put passwords or API keys in YAML. Create the archive parent directory if
+it does not exist yet, and run the first sequence:
+
+```sh
+mkdir -p mailkeep-data
+uv run mailkeep doctor
+uv run mailkeep scan
+uv run mailkeep archive --dry-run
+uv run mailkeep archive
+uv run mailkeep verify
+uv run mailkeep prune --dry-run
+```
+
+Keep `deletion_enabled: false` until those results and your independent backup
+have been reviewed.
+
+To install Mailkeep as a standalone command instead of working from a checkout:
+
+```sh
+uv tool install git+https://github.com/supernifty/mailkeep
+# or: pipx install git+https://github.com/supernifty/mailkeep
+mailkeep --config config.yaml doctor
+```
+
+## Enrichment (optional)
+
+Enrichment adds classification, document type, and evidence-backed extraction
+fields to notes. It is metadata only and never a deletion gate. The example
+configuration uses `provider: none`, which needs no extra service or key:
+
+- `none` — no AI calls (default).
+- `ollama` — a local model served by Ollama, with `privacy: local`.
+- `jev` — the hosted Typesafe backend. Install the optional dependency with
+  `uv sync --extra jev` and set `MAILKEEP_JEV_API_KEY`. Hosted submissions use
+  redacted body text only.
 
 ## Commands
 
@@ -181,12 +232,13 @@ Office, and attachment-aware enrichment requirements are recorded in
 
 ## Development
 
-Feature work is specification-first. Run:
+Feature work is specification-first; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md). Run:
 
 ```sh
-mkdir -p tmp/codex
-TMPDIR="$PWD/tmp/codex" uv run pytest
+mkdir -p tmp
+TMPDIR="$PWD/tmp" uv run pytest
 ```
 
-Temporary test artifacts belong under `tmp/codex/` and should be removed after
-verification.
+Temporary test artifacts belong under `tmp/` and should be removed after
+verification. The test suite runs on macOS and Linux through GitHub Actions.

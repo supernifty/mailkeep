@@ -6,7 +6,7 @@ label="local.mailkeep.daily"
 template="$repo_dir/ops/launchd/$label.plist.in"
 target="$HOME/Library/LaunchAgents/$label.plist"
 log_dir="${MAILKEEP_LOG_DIR:-$HOME/Library/Logs/Mailkeep}"
-staging_dir="$repo_dir/tmp/codex"
+staging_dir="$repo_dir/tmp"
 staging="$staging_dir/$label.plist"
 domain="gui/$(id -u)"
 

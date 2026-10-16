@@ -56,13 +56,22 @@ def candidate_values(text: str) -> dict[str, list[str]]:
     return {key: list(dict.fromkeys(found))[:20] for key, found in values.items() if found}
 
 
+JEV_EXTRA_HINT = (
+    "Jev enrichment requires the optional 'jev' extra: "
+    "install it with 'uv sync --extra jev' or 'pip install mailkeep[jev]'"
+)
+
+
 def no_enrichment(config: Config, text: str) -> EnrichmentResult:
     return EnrichmentResult(provider="none", model="none", input_hash=input_hash(text),
                             config_hash=config.fingerprint())
 
 
 def list_jev_models(config: Config, client_factory: Callable[..., Any] | None = None) -> list[str]:
-    from typesafe_sdk import TypeSafeClient
+    try:
+        from typesafe_sdk import TypeSafeClient
+    except ImportError as exc:
+        raise RuntimeError(JEV_EXTRA_HINT) from exc
 
     factory = client_factory or TypeSafeClient
     kwargs: dict[str, Any] = {"timeout": config.enrichment.timeout_seconds}
@@ -128,7 +137,10 @@ def enrich_ollama(config: Config, text: str, client: httpx.Client | None = None)
 
 
 def enrich_jev(config: Config, text: str, client_factory: Callable[..., Any] | None = None) -> EnrichmentResult:
-    from typesafe_sdk import Choice, Noul, TypeSafeClient
+    try:
+        from typesafe_sdk import Choice, Noul, TypeSafeClient
+    except ImportError as exc:
+        raise RuntimeError(JEV_EXTRA_HINT) from exc
 
     redacted, _ = redact(text)
     questions: dict[str, Any] = {
