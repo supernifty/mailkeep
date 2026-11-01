@@ -31,6 +31,11 @@ Phase-1 text-layer PDF and plain-text extraction is specified in
 enrichment remain deferred in `specs/future-attachment-content.md`. Extraction
 does not change preservation, provider movement, or deletion gates.
 
+Optional trusted email processors are specified in `specs/email-processors-v1.md`.
+The bundled RescueTime example extracts weekly distracting-time history and
+generates separate reports. Processors are disabled by default and their results,
+failures, and report verification never participate in archive or retention gates.
+
 ## 3. Safety invariants
 
 1. Fetching message content uses UID commands and `BODY.PEEK[]`; it must not add
@@ -65,6 +70,8 @@ The `mailkeep` package has modules for configuration, IMAP/provider access,
 MIME parsing, atomic storage, SQLite state, enrichment, Markdown rendering,
 attachment extraction, verification, retention, activity logging, locking, and
 CLI orchestration.
+The optional `processors/` package provides an explicit plugin registry, bounded
+worker, versioned results, conflict resolution, and managed time-series reports.
 Cross-module values use small dataclasses rather than provider response objects.
 
 Mutating commands acquire an exclusive lock beneath the data root. A later

@@ -3,11 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from zoneinfo import ZoneInfo
+
+from .processors.api import Definition, digest, registry, validate_fields
 
 
 class StrictModel(BaseModel):
@@ -80,6 +84,70 @@ class AttachmentExtractionConfig(StrictModel):
         ).hexdigest()
 
 
+class ProcessorMatch(StrictModel):
+    from_addresses: tuple[str, ...] = Field(min_length=1)
+    subject_contains: tuple[str, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def nonempty(self):
+        if any(not x.strip() for x in (*self.from_addresses, *self.subject_contains)):
+            raise ValueError("processor matching rules cannot be empty")
+        if any(not re.fullmatch(r"[^\s<>@]+@[^\s<>@]+", x) for x in self.from_addresses):
+            raise ValueError("processor senders must be exact mailbox addresses")
+        return self
+
+
+class ProcessorInstance(StrictModel):
+    id: str = Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")
+    implementation: str
+    series_id: str = Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")
+    match: ProcessorMatch
+    options: dict = {}
+    definition: Definition | None = None
+
+    def plugin_definition(self) -> Definition:
+        return self.definition or registry()[self.implementation]
+
+    def identity_hash(self) -> str:
+        return digest({"series_id": self.series_id, "match": self.match.model_dump()})
+
+    def options_hash(self) -> str:
+        return digest({"identity": self.identity_hash(), "options": self.options})
+
+    @model_validator(mode="after")
+    def valid_implementation(self):
+        if self.implementation in registry():
+            if self.definition is not None:
+                raise ValueError("built-in plugin definitions cannot be overridden")
+        elif not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*", self.implementation):
+            raise ValueError("unknown processor; custom implementations use module:factory")
+        elif self.definition is None:
+            raise ValueError("custom plugins require a declarative definition")
+        options = validate_fields(self.options, self.plugin_definition().options)
+        object.__setattr__(self, "options", options)
+        if self.implementation == "rescuetime-weekly":
+            try:
+                ZoneInfo(options["report_timezone"])
+            except (KeyError, ValueError) as exc:
+                raise ValueError("invalid RescueTime report timezone") from exc
+            if options["metric"] != "total_distracting_time" or options["layout"] != "weekly-v1":
+                raise ValueError("unsupported RescueTime metric/layout")
+        return self
+
+
+class ProcessorsConfig(StrictModel):
+    enabled: bool = False
+    instances: tuple[ProcessorInstance, ...] = ()
+    scratch_root: Path = Path("tmp/codex/processors")
+
+    @model_validator(mode="after")
+    def unique_ids(self):
+        ids = [i.id for i in self.instances]
+        if len(ids) != len(set(ids)):
+            raise ValueError("processor instance IDs must be unique")
+        return self
+
+
 class Config(StrictModel):
     schema_version: Literal[1] = 1
     account: AccountConfig
@@ -94,6 +162,7 @@ class Config(StrictModel):
     extraction_fields: tuple[str, ...] = ()
     attachment_extraction: AttachmentExtractionConfig = AttachmentExtractionConfig()
     enrichment: EnrichmentConfig = EnrichmentConfig()
+    processors: ProcessorsConfig = ProcessorsConfig()
 
     @field_validator("categories")
     @classmethod
@@ -111,7 +180,7 @@ class Config(StrictModel):
     def enrichment_fingerprint(self) -> str:
         """Retain the pre-attachment-feature cache key used by existing rows."""
         payload = self.model_dump(
-            mode="json", exclude={"env_file", "attachment_extraction"}
+            mode="json", exclude={"env_file", "attachment_extraction", "processors"}
         )
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -169,4 +238,8 @@ def load_config(path: str | Path) -> Config:
     if raw.get("env_file") is not None:
         raw["env_file"] = _expand_path(raw["env_file"], base)
         _load_env(raw["env_file"])
+    if isinstance(raw.get("processors"), dict):
+        raw["processors"]["scratch_root"] = _expand_path(
+            raw["processors"].get("scratch_root", "tmp/codex/processors"), base
+        )
     return Config.model_validate(raw)

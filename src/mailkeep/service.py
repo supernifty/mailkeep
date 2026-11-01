@@ -80,12 +80,14 @@ def dry_run_archive(config: Config, provider: Provider, limit: int | None,
 
 def archive(config: Config, provider: Provider, limit: int | None = None) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
+    affected_processors: set[str] = set()
     with data_lock(config.paths.archive_root):
         state = _setup(config)
         reconcile_staging(config.paths.archive_root)
         byte_total = 0
         candidates = provider.discover(limit or config.limits.messages_per_run)
         for remote in candidates:
+            processor_results = []
             remote_id = state.discover(remote)
             config_hash = config.fingerprint()
             try:
@@ -107,6 +109,16 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
                     if not local.ok:
                         raise RuntimeError("; ".join(local.errors))
                     state.set_archive_state(stored.archive_id, "preservation", "preservation_verified")
+
+                processor_results = []
+                if config.processors.enabled:
+                    from .processors.engine import process_archive
+                    try:
+                        processor_results = process_archive(config, state, stored.archive_id)
+                        affected_processors.update(item["instance_id"] for item in processor_results)
+                    except Exception as exc:
+                        # Optional derived processing never changes archive completion gates.
+                        print(f"processor stage warning: {type(exc).__name__}", file=sys.stderr)
 
                 if config.attachment_extraction.enabled:
                     try:
@@ -173,9 +185,28 @@ def archive(config: Config, provider: Provider, limit: int | None = None) -> lis
                     state.mark_processed(remote_id)
                 results.append({"uid": remote.uid, "archive_id": stored.archive_id,
                                 "outcome": "processed", "deduplicated": stored.deduplicated})
+                if processor_results:
+                    results[-1]["processors"] = processor_results
             except Exception as exc:
                 results.append({"uid": remote.uid, "outcome": "failed",
                                 "error": f"{type(exc).__name__}: {exc}"})
+                if processor_results:
+                    results[-1]["processors"] = processor_results
+        if affected_processors:
+            from .processors.reports import render_report
+            for plugin in config.processors.instances:
+                if plugin.id not in affected_processors:
+                    continue
+                try:
+                    report = render_report(config, state, plugin)
+                except Exception as exc:
+                    report = {"instance_id": plugin.id, "outcome": "failed", "stage": "render",
+                              "error": f"report persistence error: {type(exc).__name__}"}
+                if report["outcome"] == "failed" or report.get("conflicts"):
+                    print(f"processor report warning: {plugin.id}: {report}", file=sys.stderr)
+                for item in results:
+                    if any(p["instance_id"] == plugin.id for p in item.get("processors", [])):
+                        item.setdefault("processor_reports", []).append(report)
         _log_activity(config, archive_entry(results, state.archive_count()))
     return results
 

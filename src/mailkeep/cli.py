@@ -66,6 +66,26 @@ def parser() -> argparse.ArgumentParser:
     modes = prune_parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--dry-run", action="store_true")
     modes.add_argument("--execute", action="store_true")
+    processors = commands.add_parser("processors", help="inspect and manage email plugins")
+    processor_commands = processors.add_subparsers(dest="processor_command", required=True)
+    processor_commands.add_parser("list")
+    for name in ("status", "verify"):
+        child = processor_commands.add_parser(name)
+        child.add_argument("--processor")
+    resolve = processor_commands.add_parser("resolve")
+    resolve.add_argument("--processor", required=True)
+    resolve.add_argument("--result-id", required=True, type=int)
+    resolve.add_argument("--reason", required=True)
+    resolve.add_argument("--execute", action="store_true", required=True)
+    for name in ("process-emails", "render-reports"):
+        child = commands.add_parser(name, help="process preserved emails" if name == "process-emails" else "rebuild plugin reports")
+        child.add_argument("--processor", required=True)
+        modes = child.add_mutually_exclusive_group(required=True)
+        modes.add_argument("--dry-run", action="store_true")
+        modes.add_argument("--execute", action="store_true")
+        if name == "process-emails":
+            child.add_argument("--archive-id")
+            child.add_argument("--retry-failed", action="store_true")
     return root
 
 
@@ -159,6 +179,36 @@ def main(argv: list[str] | None = None) -> int:
         ok, checks = doctor(config)
         _print_json(checks)
         return 0 if ok else 1
+    if args.command in ("processors", "process-emails", "render-reports"):
+        from .processors.engine import process_emails, resolve
+        from .processors.reports import (has_failures, list_plugins, render_reports,
+                                         status, verify_processors)
+        try:
+            if args.command == "process-emails":
+                result = process_emails(config, args.processor, execute=args.execute,
+                                        archive_id=args.archive_id, retry_failed=args.retry_failed)
+            elif args.command == "render-reports":
+                result = render_reports(config, args.processor, execute=args.execute)
+            elif args.processor_command == "list":
+                _print_json(list_plugins(config))
+                return 0
+            elif args.processor_command == "status":
+                _print_json(status(config, args.processor))
+                return 0
+            elif args.processor_command == "verify":
+                report = verify_processors(config, args.processor)
+                _print_json(report)
+                return 0 if report["ok"] else 1
+            else:
+                result = [resolve(config, args.processor, args.result_id, args.reason)]
+            _print_json(result)
+            return 1 if has_failures(result) else 0
+        except ValueError as exc:
+            print(f"processor configuration/usage error: {exc}", file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f"processor error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
     if args.command == "status":
         if not config.paths.database.exists():
             value = {"states": {}, "failed_attempts": 0, "recent_events": []}

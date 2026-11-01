@@ -229,6 +229,16 @@ representation are specified in
 Office, and attachment-aware enrichment requirements are recorded in
 [`specs/future-attachment-content.md`](specs/future-attachment-content.md).
 
+## Email processor plugins
+
+Mailkeep includes an optional RescueTime example plugin for extracting weekly
+**All Distracting Time** totals into a historical table, CSV, and local graph.
+Plugins are disabled by default, run on verified local archives, and do not
+change preservation or retention gates. The same interface supports explicitly
+configured trusted Python modules. See [configuration, commands, and plugin
+development](docs/email-processors.md) and the
+[feature specification](specs/email-processors-v1.md).
+
 ## Development
 
 Feature work is specification-first; see

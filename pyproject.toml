@@ -31,6 +31,7 @@ dependencies = [
   "pydantic>=2.9,<3",
   "PyYAML>=6.0,<7",
   "typesafe-sdk>=0.1",
+  "matplotlib>=3.9,<4",
 ]
 
 [project.optional-dependencies]

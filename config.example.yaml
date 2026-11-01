@@ -41,6 +41,22 @@ attachment_extraction:
   timeout_seconds_per_message: 120
   note_chars_per_attachment: 50000
   note_chars_per_message: 100000
+processors:
+  # The RescueTime example ships with Mailkeep; opt in by setting enabled: true.
+  enabled: false
+  scratch_root: ./tmp/codex/processors
+  instances:
+    - id: personal-rescuetime
+      implementation: rescuetime-weekly
+      series_id: personal
+      match:
+        from_addresses: [support@rescuetime.com]
+        subject_contains: [RescueTime Weekly Summary]
+      options:
+        # Confirm this matches the timezone configured in your RescueTime account.
+        report_timezone: Australia/Melbourne
+        metric: total_distracting_time
+        layout: weekly-v1
 enrichment:
   # "none" keeps everything local and needs no extra service or key.
   # "ollama" uses a local model. "jev" uses the hosted Typesafe backend and
